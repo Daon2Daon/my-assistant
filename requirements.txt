@@ -1,0 +1,40 @@
+# FastAPI and Server
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# Database
+sqlalchemy>=2.0.0
+
+# Scheduler
+apscheduler>=3.10.0
+
+# HTTP Client
+httpx>=0.26.0
+
+# Environment Variables
+python-dotenv>=1.0.0
+
+# Templates
+jinja2>=3.1.0
+
+# Form Data
+python-multipart>=0.0.6
+
+# External APIs
+requests>=2.31.0
+
+# Finance Data
+yfinance>=0.2.0
+pykrx>=1.0.0
+
+# Google Calendar
+google-auth>=2.0.0
+google-auth-oauthlib>=1.0.0
+google-auth-httplib2>=0.1.0
+google-api-python-client>=2.0.0
+
+# Code Quality (Development)
+black>=24.0.0
+ruff>=0.1.0
+pytest>=7.0.0
+pytest-asyncio>=0.21.0

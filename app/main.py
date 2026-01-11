@@ -5,9 +5,11 @@ FastAPI 기반 개인용 카카오톡 비서 앱
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from app.config import settings
-from app.routers import auth, scheduler
+from app.routers import auth, scheduler, reminders, dashboard, settings as settings_router, logs
 from app.services.scheduler import scheduler_service
+from app.services.bots.memo_bot import memo_bot
 
 # FastAPI 앱 생성
 app = FastAPI(
@@ -17,25 +19,18 @@ app = FastAPI(
     debug=settings.DEBUG,
 )
 
-# 라우터 등록
+# Static 파일 서빙
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+# API 라우터 등록
 app.include_router(auth.router)
 app.include_router(scheduler.router)
+app.include_router(reminders.router)
+app.include_router(settings_router.router)
+app.include_router(logs.router)
 
-
-@app.get("/")
-async def root():
-    """
-    루트 엔드포인트
-    서버 상태 확인용
-    """
-    return JSONResponse(
-        content={
-            "message": "Hello World",
-            "app": "My-Kakao-Assistant",
-            "version": "0.1.0",
-            "status": "running",
-        }
-    )
+# Dashboard 라우터 (페이지 렌더링) - 마지막에 등록
+app.include_router(dashboard.router)
 
 
 @app.get("/health")
@@ -59,6 +54,20 @@ async def startup_event():
 
     # 스케줄러 시작
     scheduler_service.start()
+
+    # 미발송 메모 Job 복원
+    restored_count = memo_bot.restore_pending_reminders()
+    if restored_count > 0:
+        print(f"📝 미발송 메모 {restored_count}개 Job 복원 완료")
+
+    # 복원된 Job 목록 출력
+    jobs = scheduler_service.get_all_jobs()
+    if jobs:
+        print(f"📋 등록된 Job 목록 ({len(jobs)}개):")
+        for job in jobs:
+            print(f"   - {job['id']}: 다음 실행 {job['next_run_time']}")
+    else:
+        print("📋 등록된 Job이 없습니다")
 
 
 # 애플리케이션 종료 이벤트

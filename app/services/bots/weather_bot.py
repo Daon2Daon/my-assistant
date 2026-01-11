@@ -8,7 +8,7 @@ from typing import Dict, Optional
 from datetime import datetime
 from app.config import settings
 from app.database import SessionLocal
-from app.crud import get_or_create_user, create_log
+from app.crud import get_or_create_user, create_log, is_setting_active
 from app.services.auth.kakao_auth import kakao_auth_service
 
 
@@ -155,6 +155,15 @@ class WeatherBot:
         db = SessionLocal()
 
         try:
+            # 사용자 조회
+            user = get_or_create_user(db)
+
+            # Settings에서 날씨 알림 활성화 여부 확인
+            if not is_setting_active(db, user.user_id, "weather"):
+                print("⏸️  날씨 알림이 비활성화되어 있습니다")
+                create_log(db, "weather", "SKIP", "날씨 알림 비활성화 상태")
+                return
+
             # 날씨 정보 조회
             weather_data = await self.get_weather(city)
 
@@ -165,9 +174,6 @@ class WeatherBot:
 
             # 메시지 포맷팅
             message = self.format_weather_message(weather_data)
-
-            # 사용자 조회
-            user = get_or_create_user(db)
 
             if not user.kakao_access_token:
                 create_log(db, "weather", "FAIL", "카카오 토큰이 없습니다")

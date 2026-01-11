@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - My-Kakao-Assistant{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h2><i class="bi bi-gear me-2"></i>Settings</h2>
+        <p class="text-muted">Configure notification settings and schedules</p>
+    </div>
+</div>
+
+<!-- Authentication Status -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-shield-check me-2"></i>Authentication</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <!-- Kakao -->
+                    <div class="col-md-6 mb-3">
+                        <div class="p-3 border rounded">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <i class="bi bi-chat-dots fs-3 text-warning me-2"></i>
+                                    <span class="fw-bold">Kakao Talk</span>
+                                </div>
+                                <span id="settings-kakao-status" class="badge bg-secondary">Loading...</span>
+                            </div>
+                            <p class="text-muted small mt-2 mb-2">Required for sending notifications</p>
+                            <a href="/auth/kakao/login" id="settings-kakao-btn" class="btn btn-warning btn-sm">
+                                <i class="bi bi-box-arrow-in-right me-1"></i>Connect
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- Google -->
+                    <div class="col-md-6 mb-3">
+                        <div class="p-3 border rounded">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <i class="bi bi-google fs-3 text-danger me-2"></i>
+                                    <span class="fw-bold">Google Calendar</span>
+                                </div>
+                                <span id="settings-google-status" class="badge bg-secondary">Loading...</span>
+                            </div>
+                            <p class="text-muted small mt-2 mb-2">Required for calendar briefing</p>
+                            <a href="/auth/google/login" id="settings-google-btn" class="btn btn-danger btn-sm">
+                                <i class="bi bi-box-arrow-in-right me-1"></i>Connect
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Notification Settings -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-bell me-2"></i>Notification Settings</h5>
+            </div>
+            <div class="card-body">
+                <!-- Weather -->
+                <div class="row align-items-center py-3 border-bottom">
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-cloud-sun fs-3 text-info me-3"></i>
+                            <div>
+                                <h6 class="mb-0">Weather</h6>
+                                <small class="text-muted">Daily weather briefing</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text">Time</span>
+                            <input type="time" class="form-control" id="weather-time" value="06:30">
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input setting-toggle" type="checkbox"
+                                   id="settings-weather-toggle" data-category="weather" checked>
+                            <label class="form-check-label" for="settings-weather-toggle">Enabled</label>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-sm btn-outline-primary" onclick="registerJob('weather')">
+                            <i class="bi bi-save me-1"></i>Save
+                        </button>
+                    </div>
+                </div>
+
+                <!-- US Market -->
+                <div class="row align-items-center py-3 border-bottom">
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-graph-up fs-3 text-success me-3"></i>
+                            <div>
+                                <h6 class="mb-0">US Market</h6>
+                                <small class="text-muted">US stock market closing</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text">Time</span>
+                            <input type="time" class="form-control" id="us-market-time" value="08:00">
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input setting-toggle" type="checkbox"
+                                   id="settings-finance-toggle" data-category="finance" checked>
+                            <label class="form-check-label" for="settings-finance-toggle">Enabled</label>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-sm btn-outline-primary" onclick="registerJob('finance/us')">
+                            <i class="bi bi-save me-1"></i>Save
+                        </button>
+                    </div>
+                </div>
+
+                <!-- KR Market -->
+                <div class="row align-items-center py-3 border-bottom">
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-graph-up fs-3 text-success me-3"></i>
+                            <div>
+                                <h6 class="mb-0">KR Market</h6>
+                                <small class="text-muted">Korean stock market closing</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text">Time</span>
+                            <input type="time" class="form-control" id="kr-market-time" value="17:00">
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <!-- Uses same finance toggle -->
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-sm btn-outline-primary" onclick="registerJob('finance/kr')">
+                            <i class="bi bi-save me-1"></i>Save
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Calendar -->
+                <div class="row align-items-center py-3">
+                    <div class="col-md-4">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-calendar-event fs-3 text-primary me-3"></i>
+                            <div>
+                                <h6 class="mb-0">Calendar</h6>
+                                <small class="text-muted">Daily schedule briefing</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text">Time</span>
+                            <input type="time" class="form-control" id="calendar-time" value="07:00">
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input setting-toggle" type="checkbox"
+                                   id="settings-calendar-toggle" data-category="calendar" checked>
+                            <label class="form-check-label" for="settings-calendar-toggle">Enabled</label>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-sm btn-outline-primary" onclick="registerJob('calendar')">
+                            <i class="bi bi-save me-1"></i>Save
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Registered Jobs -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>Registered Jobs</h5>
+                <button class="btn btn-sm btn-outline-primary" onclick="loadSettingsJobs()">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+            <div class="card-body">
+                <div id="settings-jobs-list">
+                    <div class="text-center text-muted py-3">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        <span class="ms-2">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="settings-result" class="position-fixed bottom-0 end-0 p-3" style="z-index: 1050;"></div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/settings.js"></script>
+{% endblock %}

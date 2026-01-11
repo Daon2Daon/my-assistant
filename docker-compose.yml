@@ -1,0 +1,51 @@
+# My-Kakao-Assistant Docker Compose - Production
+# 서버 배포용 (Watchtower 자동 업데이트 지원)
+
+services:
+  my-assistant:
+    image: ghcr.io/daon2daon/my-assistant:latest
+    container_name: my-assistant
+    restart: always
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      # 데이터 영속성 (SQLite DB)
+      - my-assistant-data:/app/data
+    environment:
+      # App
+      - DEBUG=${DEBUG:-False}
+      - SECRET_KEY=${SECRET_KEY}
+      # Database
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/assistant.db}
+      # Kakao API
+      - KAKAO_REST_API_KEY=${KAKAO_REST_API_KEY}
+      - KAKAO_REDIRECT_URI=${KAKAO_REDIRECT_URI}
+      # Google API
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI}
+      # OpenWeatherMap
+      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - my-assistant-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  my-assistant-data:
+    driver: local
+
+networks:
+  my-assistant-network:
+    driver: bridge

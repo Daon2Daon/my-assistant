@@ -97,6 +97,24 @@ def get_setting_by_category(
     )
 
 
+def is_setting_active(db: Session, user_id: int, category: str) -> bool:
+    """
+    특정 카테고리의 알림이 활성화되어 있는지 확인
+
+    Args:
+        db: 데이터베이스 세션
+        user_id: 사용자 ID
+        category: 카테고리 ('weather', 'finance', 'calendar')
+
+    Returns:
+        bool: 활성화 여부 (설정이 없으면 True 반환 - 기본 활성화)
+    """
+    setting = get_setting_by_category(db, user_id, category)
+    if setting is None:
+        return True  # 설정이 없으면 기본적으로 활성화
+    return setting.is_active
+
+
 def create_setting(
     db: Session,
     user_id: int,

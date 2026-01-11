@@ -10,6 +10,7 @@ from app.services.bots import (
     send_weather_notification_sync,
     send_us_market_notification_sync,
     send_kr_market_notification_sync,
+    send_calendar_notification_sync,
 )
 
 router = APIRouter(prefix="/api/scheduler", tags=["Scheduler"])
@@ -289,6 +290,61 @@ async def test_kr_market_notification():
         return JSONResponse(
             content={
                 "message": "한국 증시 알림 테스트 실행 완료",
+                "note": "메시지 발송 결과는 로그를 확인하세요",
+            }
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"테스트 실행 실패: {str(e)}")
+
+
+@router.post("/jobs/calendar")
+async def register_calendar_job(hour: int = 7, minute: int = 0):
+    """
+    캘린더 브리핑 Job 등록
+    매일 지정된 시간에 오늘의 일정 알림 발송
+
+    Args:
+        hour: 시 (0-23, 기본값: 7)
+        minute: 분 (0-59, 기본값: 0)
+    """
+    try:
+        if not (0 <= hour <= 23):
+            raise HTTPException(status_code=400, detail="시간은 0-23 사이여야 합니다")
+        if not (0 <= minute <= 59):
+            raise HTTPException(status_code=400, detail="분은 0-59 사이여야 합니다")
+
+        # Job 등록
+        scheduler_service.add_cron_job(
+            func=send_calendar_notification_sync,
+            job_id="calendar_notification",
+            hour=hour,
+            minute=minute,
+        )
+
+        return JSONResponse(
+            content={
+                "message": "캘린더 브리핑 Job 등록 완료",
+                "job_id": "calendar_notification",
+                "schedule": f"매일 {hour:02d}:{minute:02d}",
+            }
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Job 등록 실패: {str(e)}")
+
+
+@router.post("/test/calendar")
+async def test_calendar_notification():
+    """
+    캘린더 브리핑 즉시 테스트
+    """
+    try:
+        send_calendar_notification_sync()
+
+        return JSONResponse(
+            content={
+                "message": "캘린더 브리핑 테스트 실행 완료",
                 "note": "메시지 발송 결과는 로그를 확인하세요",
             }
         )

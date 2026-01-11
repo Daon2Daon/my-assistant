@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - My-Kakao-Assistant{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h2><i class="bi bi-speedometer2 me-2"></i>Dashboard</h2>
+        <p class="text-muted">My-Kakao-Assistant Service Status</p>
+    </div>
+</div>
+
+<!-- Service Status Cards -->
+<div class="row mb-4">
+    <!-- Scheduler Status -->
+    <div class="col-md-4 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <i class="bi bi-clock-history fs-1 text-primary"></i>
+                    </div>
+                    <div class="flex-grow-1 ms-3">
+                        <h5 class="card-title mb-1">Scheduler</h5>
+                        <span id="scheduler-status" class="badge bg-secondary">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Kakao Auth Status -->
+    <div class="col-md-4 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <i class="bi bi-chat-dots fs-1 text-warning"></i>
+                    </div>
+                    <div class="flex-grow-1 ms-3">
+                        <h5 class="card-title mb-1">Kakao</h5>
+                        <span id="kakao-status" class="badge bg-secondary">Loading...</span>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <a href="/auth/kakao/login" id="kakao-login-btn" class="btn btn-sm btn-outline-warning d-none">Login</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Google Auth Status -->
+    <div class="col-md-4 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <i class="bi bi-google fs-1 text-danger"></i>
+                    </div>
+                    <div class="flex-grow-1 ms-3">
+                        <h5 class="card-title mb-1">Google</h5>
+                        <span id="google-status" class="badge bg-secondary">Loading...</span>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <a href="/auth/google/login" id="google-login-btn" class="btn btn-sm btn-outline-danger d-none">Login</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Module Settings -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-toggles me-2"></i>Module Settings</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <!-- Weather Module -->
+                    <div class="col-md-4 mb-3">
+                        <div class="d-flex justify-content-between align-items-center p-3 border rounded">
+                            <div>
+                                <i class="bi bi-cloud-sun fs-4 text-info me-2"></i>
+                                <span class="fw-bold">Weather</span>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="weather-toggle" data-category="weather">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Finance Module -->
+                    <div class="col-md-4 mb-3">
+                        <div class="d-flex justify-content-between align-items-center p-3 border rounded">
+                            <div>
+                                <i class="bi bi-graph-up fs-4 text-success me-2"></i>
+                                <span class="fw-bold">Finance</span>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="finance-toggle" data-category="finance">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Calendar Module -->
+                    <div class="col-md-4 mb-3">
+                        <div class="d-flex justify-content-between align-items-center p-3 border rounded">
+                            <div>
+                                <i class="bi bi-calendar-event fs-4 text-primary me-2"></i>
+                                <span class="fw-bold">Calendar</span>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="calendar-toggle" data-category="calendar">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Scheduled Jobs -->
+<div class="row mb-4">
+    <div class="col-md-6 mb-3">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-list-task me-2"></i>Scheduled Jobs</h5>
+                <button class="btn btn-sm btn-outline-primary" onclick="loadJobs()">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+            <div class="card-body">
+                <div id="jobs-list">
+                    <div class="text-center text-muted py-3">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        <span class="ms-2">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Logs -->
+    <div class="col-md-6 mb-3">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-journal-text me-2"></i>Recent Logs</h5>
+                <button class="btn btn-sm btn-outline-primary" onclick="loadLogs()">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+            <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+                <div id="logs-list">
+                    <div class="text-center text-muted py-3">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        <span class="ms-2">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Test Buttons -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-lightning me-2"></i>Quick Test</h5>
+            </div>
+            <div class="card-body">
+                <div class="btn-group flex-wrap" role="group">
+                    <button class="btn btn-outline-info" onclick="testNotification('weather')">
+                        <i class="bi bi-cloud-sun me-1"></i>Weather
+                    </button>
+                    <button class="btn btn-outline-success" onclick="testNotification('finance/us')">
+                        <i class="bi bi-graph-up me-1"></i>US Market
+                    </button>
+                    <button class="btn btn-outline-success" onclick="testNotification('finance/kr')">
+                        <i class="bi bi-graph-up me-1"></i>KR Market
+                    </button>
+                    <button class="btn btn-outline-primary" onclick="testNotification('calendar')">
+                        <i class="bi bi-calendar-event me-1"></i>Calendar
+                    </button>
+                </div>
+                <div id="test-result" class="mt-3"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/dashboard.js"></script>
+{% endblock %}

@@ -8,7 +8,7 @@ from pykrx import stock
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from app.database import SessionLocal
-from app.crud import get_or_create_user, create_log
+from app.crud import get_or_create_user, create_log, is_setting_active
 from app.services.auth.kakao_auth import kakao_auth_service
 
 
@@ -197,6 +197,15 @@ class FinanceBot:
         db = SessionLocal()
 
         try:
+            # 사용자 조회
+            user = get_or_create_user(db)
+
+            # Settings에서 금융 알림 활성화 여부 확인
+            if not is_setting_active(db, user.user_id, "finance"):
+                print("⏸️  금융 알림이 비활성화되어 있습니다")
+                create_log(db, "finance", "SKIP", "미국 증시 알림 비활성화 상태")
+                return
+
             # 증시 데이터 조회
             market_data = self.get_us_market_data()
 
@@ -206,9 +215,6 @@ class FinanceBot:
 
             # 메시지 포맷팅
             message = self.format_us_market_message(market_data)
-
-            # 사용자 조회
-            user = get_or_create_user(db)
 
             if not user.kakao_access_token:
                 create_log(db, "finance", "FAIL", "카카오 토큰이 없습니다")
@@ -248,6 +254,15 @@ class FinanceBot:
         db = SessionLocal()
 
         try:
+            # 사용자 조회
+            user = get_or_create_user(db)
+
+            # Settings에서 금융 알림 활성화 여부 확인
+            if not is_setting_active(db, user.user_id, "finance"):
+                print("⏸️  금융 알림이 비활성화되어 있습니다")
+                create_log(db, "finance", "SKIP", "한국 증시 알림 비활성화 상태")
+                return
+
             # 증시 데이터 조회
             market_data = self.get_kr_market_data()
 
@@ -257,9 +272,6 @@ class FinanceBot:
 
             # 메시지 포맷팅
             message = self.format_kr_market_message(market_data)
-
-            # 사용자 조회
-            user = get_or_create_user(db)
 
             if not user.kakao_access_token:
                 create_log(db, "finance", "FAIL", "카카오 토큰이 없습니다")

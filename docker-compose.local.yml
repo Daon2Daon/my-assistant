@@ -1,0 +1,44 @@
+# My-Kakao-Assistant Docker Compose - Local Development
+# 로컬 테스트 및 개발 환경용
+
+services:
+  my-assistant:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: my-assistant-local
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      # 데이터 영속성 (SQLite DB)
+      - ./data:/app/data
+      # 개발 시 코드 변경 반영 (선택사항)
+      # - ./app:/app/app
+    environment:
+      # App
+      - DEBUG=${DEBUG:-True}
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
+      # Database
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/assistant.db}
+      # Kakao API
+      - KAKAO_REST_API_KEY=${KAKAO_REST_API_KEY}
+      - KAKAO_REDIRECT_URI=${KAKAO_REDIRECT_URI:-http://localhost:8000/auth/kakao/callback}
+      # Google API
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-http://localhost:8000/auth/google/callback}
+      # OpenWeatherMap
+      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - my-assistant-network
+
+networks:
+  my-assistant-network:
+    driver: bridge

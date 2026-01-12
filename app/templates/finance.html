@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block title %}Finance - My-Kakao-Assistant{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h2><i class="bi bi-graph-up me-2"></i>Finance</h2>
+        <p class="text-muted">금융 알림 관리 페이지</p>
+    </div>
+</div>
+
+<!-- 상태 카드 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>상태</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <!-- 활성화 토글 -->
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label fw-bold">활성화</label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="finance-active-toggle">
+                            <label class="form-check-label" id="active-status-label">Loading...</label>
+                        </div>
+                    </div>
+
+                    <!-- US 다음 발송 예정 -->
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label fw-bold">US Market 다음 발송</label>
+                        <p id="us-next-run-time" class="mb-0 text-muted">-</p>
+                    </div>
+
+                    <!-- KR 다음 발송 예정 -->
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label fw-bold">KR Market 다음 발송</label>
+                        <p id="kr-next-run-time" class="mb-0 text-muted">-</p>
+                    </div>
+
+                    <!-- 마지막 발송 결과 -->
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label fw-bold">마지막 발송</label>
+                        <p id="last-run-info" class="mb-0 text-muted">-</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 설정 섹션 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-gear me-2"></i>설정</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <!-- US Market 알림 시간 -->
+                    <div class="col-md-6 mb-3">
+                        <label for="us-notification-time" class="form-label fw-bold">
+                            <i class="bi bi-flag-fill text-primary me-1"></i>US Market 알림 시간
+                        </label>
+                        <input type="time" class="form-control" id="us-notification-time" value="22:00">
+                        <small class="text-muted">미국 증시 마감 후 알림 시간</small>
+                    </div>
+
+                    <!-- KR Market 알림 시간 -->
+                    <div class="col-md-6 mb-3">
+                        <label for="kr-notification-time" class="form-label fw-bold">
+                            <i class="bi bi-flag-fill text-danger me-1"></i>KR Market 알림 시간
+                        </label>
+                        <input type="time" class="form-control" id="kr-notification-time" value="09:00">
+                        <small class="text-muted">한국 증시 개장 전 알림 시간</small>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-12">
+                        <button class="btn btn-primary" onclick="saveSettings()">
+                            <i class="bi bi-save me-1"></i>설정 저장
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 테스트 및 미리보기 섹션 -->
+<div class="row mb-4">
+    <!-- US Market -->
+    <div class="col-md-6 mb-3">
+        <div class="card h-100">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-flag-fill me-2"></i>US Market</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2 mb-3">
+                    <button class="btn btn-success" onclick="testUSMarket()">
+                        <i class="bi bi-send me-1"></i>즉시 테스트 발송
+                    </button>
+                    <button class="btn btn-outline-info" onclick="loadUSPreview()">
+                        <i class="bi bi-eye me-1"></i>메시지 미리보기
+                    </button>
+                </div>
+                <div id="us-test-result"></div>
+                <div id="us-preview" class="mt-3" style="max-height: 300px; overflow-y: auto;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- KR Market -->
+    <div class="col-md-6 mb-3">
+        <div class="card h-100">
+            <div class="card-header bg-danger text-white">
+                <h5 class="mb-0"><i class="bi bi-flag-fill me-2"></i>KR Market</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2 mb-3">
+                    <button class="btn btn-success" onclick="testKRMarket()">
+                        <i class="bi bi-send me-1"></i>즉시 테스트 발송
+                    </button>
+                    <button class="btn btn-outline-info" onclick="loadKRPreview()">
+                        <i class="bi bi-eye me-1"></i>메시지 미리보기
+                    </button>
+                </div>
+                <div id="kr-test-result"></div>
+                <div id="kr-preview" class="mt-3" style="max-height: 300px; overflow-y: auto;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 관련 로그 -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-journal-text me-2"></i>최근 로그</h5>
+                <button class="btn btn-sm btn-outline-primary" onclick="loadLogs()">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+            <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                <div id="logs-container">
+                    <div class="text-center text-muted py-3">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        <span class="ms-2">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/finance.js"></script>
+{% endblock %}

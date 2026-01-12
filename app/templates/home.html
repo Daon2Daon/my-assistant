@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+
+{% block title %}Home - My-Kakao-Assistant{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h2><i class="bi bi-house me-2"></i>Home</h2>
+        <p class="text-muted">시스템 상태 개요</p>
+    </div>
+</div>
+
+<!-- System Status Cards -->
+<div class="row mb-4">
+    <div class="col-12">
+        <h5 class="mb-3"><i class="bi bi-info-circle me-2"></i>시스템 상태</h5>
+    </div>
+
+    <!-- Scheduler Status -->
+    <div class="col-md-4 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <i class="bi bi-clock-history fs-1 text-primary"></i>
+                    </div>
+                    <div class="flex-grow-1 ms-3">
+                        <h5 class="card-title mb-1">Scheduler</h5>
+                        <span id="scheduler-status" class="badge bg-secondary">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Kakao Auth Status -->
+    <div class="col-md-4 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <i class="bi bi-chat-dots fs-1 text-warning"></i>
+                    </div>
+                    <div class="flex-grow-1 ms-3">
+                        <h5 class="card-title mb-1">Kakao</h5>
+                        <span id="kakao-status" class="badge bg-secondary">Loading...</span>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <a href="/auth/kakao/login" id="kakao-login-btn" class="btn btn-sm btn-outline-warning d-none">Login</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Google Auth Status -->
+    <div class="col-md-4 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <i class="bi bi-google fs-1 text-danger"></i>
+                    </div>
+                    <div class="flex-grow-1 ms-3">
+                        <h5 class="card-title mb-1">Google</h5>
+                        <span id="google-status" class="badge bg-secondary">Loading...</span>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <a href="/auth/google/login" id="google-login-btn" class="btn btn-sm btn-outline-danger d-none">Login</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Module Summary Cards -->
+<div class="row mb-4">
+    <div class="col-12">
+        <h5 class="mb-3"><i class="bi bi-grid-3x3-gap me-2"></i>모듈 요약</h5>
+    </div>
+
+    <!-- Weather Module -->
+    <div class="col-md-6 col-lg-3 mb-3">
+        <a href="/weather" class="text-decoration-none">
+            <div class="card h-100 hover-shadow">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-2">
+                        <i class="bi bi-cloud-sun fs-3 text-info me-2"></i>
+                        <h6 class="card-title mb-0">Weather</h6>
+                    </div>
+                    <div class="mt-2">
+                        <span id="weather-active-status" class="badge bg-secondary">Loading...</span>
+                    </div>
+                    <small id="weather-next-run" class="text-muted d-block mt-2">다음 발송: -</small>
+                </div>
+            </div>
+        </a>
+    </div>
+
+    <!-- Finance Module -->
+    <div class="col-md-6 col-lg-3 mb-3">
+        <a href="/finance" class="text-decoration-none">
+            <div class="card h-100 hover-shadow">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-2">
+                        <i class="bi bi-graph-up fs-3 text-success me-2"></i>
+                        <h6 class="card-title mb-0">Finance</h6>
+                    </div>
+                    <div class="mt-2">
+                        <span id="finance-active-status" class="badge bg-secondary">Loading...</span>
+                    </div>
+                    <small id="finance-next-run" class="text-muted d-block mt-2">다음 발송: -</small>
+                </div>
+            </div>
+        </a>
+    </div>
+
+    <!-- Calendar Module -->
+    <div class="col-md-6 col-lg-3 mb-3">
+        <a href="/calendar" class="text-decoration-none">
+            <div class="card h-100 hover-shadow">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-2">
+                        <i class="bi bi-calendar-event fs-3 text-primary me-2"></i>
+                        <h6 class="card-title mb-0">Calendar</h6>
+                    </div>
+                    <div class="mt-2">
+                        <span id="calendar-active-status" class="badge bg-secondary">Loading...</span>
+                    </div>
+                    <small id="calendar-next-run" class="text-muted d-block mt-2">다음 발송: -</small>
+                </div>
+            </div>
+        </a>
+    </div>
+
+    <!-- Reminders Module -->
+    <div class="col-md-6 col-lg-3 mb-3">
+        <a href="/reminders" class="text-decoration-none">
+            <div class="card h-100 hover-shadow">
+                <div class="card-body">
+                    <div class="d-flex align-items-center mb-2">
+                        <i class="bi bi-bell fs-3 text-warning me-2"></i>
+                        <h6 class="card-title mb-0">Reminders</h6>
+                    </div>
+                    <div class="mt-2">
+                        <span id="reminders-count" class="badge bg-secondary">Loading...</span>
+                    </div>
+                    <small class="text-muted d-block mt-2">대기 중인 메모</small>
+                </div>
+            </div>
+        </a>
+    </div>
+</div>
+
+<!-- Recent Activity -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-activity me-2"></i>최근 활동</h5>
+                <a href="/logs" class="btn btn-sm btn-outline-primary">
+                    전체 보기 <i class="bi bi-arrow-right ms-1"></i>
+                </a>
+            </div>
+            <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                <div id="recent-logs">
+                    <div class="text-center text-muted py-3">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        <span class="ms-2">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.hover-shadow {
+    transition: all 0.3s ease;
+}
+.hover-shadow:hover {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    transform: translateY(-2px);
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/home.js"></script>
+{% endblock %}

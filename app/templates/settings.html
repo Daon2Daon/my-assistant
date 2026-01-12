@@ -58,132 +58,20 @@
     </div>
 </div>
 
-<!-- Notification Settings -->
+<!-- Scheduler Management -->
 <div class="row mb-4">
     <div class="col-12">
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-bell me-2"></i>Notification Settings</h5>
+                <h5 class="mb-0"><i class="bi bi-gear-fill me-2"></i>Scheduler Management</h5>
             </div>
             <div class="card-body">
-                <!-- Weather -->
-                <div class="row align-items-center py-3 border-bottom">
-                    <div class="col-md-4">
-                        <div class="d-flex align-items-center">
-                            <i class="bi bi-cloud-sun fs-3 text-info me-3"></i>
-                            <div>
-                                <h6 class="mb-0">Weather</h6>
-                                <small class="text-muted">Daily weather briefing</small>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="input-group input-group-sm">
-                            <span class="input-group-text">Time</span>
-                            <input type="time" class="form-control" id="weather-time" value="06:30">
-                        </div>
-                    </div>
-                    <div class="col-md-2">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input setting-toggle" type="checkbox"
-                                   id="settings-weather-toggle" data-category="weather" checked>
-                            <label class="form-check-label" for="settings-weather-toggle">Enabled</label>
-                        </div>
-                    </div>
-                    <div class="col-md-2">
-                        <button class="btn btn-sm btn-outline-primary" onclick="registerJob('weather')">
-                            <i class="bi bi-save me-1"></i>Save
-                        </button>
-                    </div>
-                </div>
-
-                <!-- US Market -->
-                <div class="row align-items-center py-3 border-bottom">
-                    <div class="col-md-4">
-                        <div class="d-flex align-items-center">
-                            <i class="bi bi-graph-up fs-3 text-success me-3"></i>
-                            <div>
-                                <h6 class="mb-0">US Market</h6>
-                                <small class="text-muted">US stock market closing</small>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="input-group input-group-sm">
-                            <span class="input-group-text">Time</span>
-                            <input type="time" class="form-control" id="us-market-time" value="08:00">
-                        </div>
-                    </div>
-                    <div class="col-md-2">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input setting-toggle" type="checkbox"
-                                   id="settings-finance-toggle" data-category="finance" checked>
-                            <label class="form-check-label" for="settings-finance-toggle">Enabled</label>
-                        </div>
-                    </div>
-                    <div class="col-md-2">
-                        <button class="btn btn-sm btn-outline-primary" onclick="registerJob('finance/us')">
-                            <i class="bi bi-save me-1"></i>Save
-                        </button>
-                    </div>
-                </div>
-
-                <!-- KR Market -->
-                <div class="row align-items-center py-3 border-bottom">
-                    <div class="col-md-4">
-                        <div class="d-flex align-items-center">
-                            <i class="bi bi-graph-up fs-3 text-success me-3"></i>
-                            <div>
-                                <h6 class="mb-0">KR Market</h6>
-                                <small class="text-muted">Korean stock market closing</small>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="input-group input-group-sm">
-                            <span class="input-group-text">Time</span>
-                            <input type="time" class="form-control" id="kr-market-time" value="17:00">
-                        </div>
-                    </div>
-                    <div class="col-md-2">
-                        <!-- Uses same finance toggle -->
-                    </div>
-                    <div class="col-md-2">
-                        <button class="btn btn-sm btn-outline-primary" onclick="registerJob('finance/kr')">
-                            <i class="bi bi-save me-1"></i>Save
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Calendar -->
-                <div class="row align-items-center py-3">
-                    <div class="col-md-4">
-                        <div class="d-flex align-items-center">
-                            <i class="bi bi-calendar-event fs-3 text-primary me-3"></i>
-                            <div>
-                                <h6 class="mb-0">Calendar</h6>
-                                <small class="text-muted">Daily schedule briefing</small>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="input-group input-group-sm">
-                            <span class="input-group-text">Time</span>
-                            <input type="time" class="form-control" id="calendar-time" value="07:00">
-                        </div>
-                    </div>
-                    <div class="col-md-2">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input setting-toggle" type="checkbox"
-                                   id="settings-calendar-toggle" data-category="calendar" checked>
-                            <label class="form-check-label" for="settings-calendar-toggle">Enabled</label>
-                        </div>
-                    </div>
-                    <div class="col-md-2">
-                        <button class="btn btn-sm btn-outline-primary" onclick="registerJob('calendar')">
-                            <i class="bi bi-save me-1"></i>Save
-                        </button>
-                    </div>
+                <div class="alert alert-info mb-0" role="alert">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <strong>Note:</strong> Configure individual notification settings on their respective pages:
+                    <a href="/weather" class="alert-link">Weather</a>,
+                    <a href="/finance" class="alert-link">Finance</a>,
+                    <a href="/calendar" class="alert-link">Calendar</a>
                 </div>
             </div>
         </div>

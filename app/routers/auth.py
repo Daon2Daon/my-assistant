@@ -6,6 +6,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
+from urllib.parse import quote
 
 from app.database import get_db
 from app.services.auth.kakao_auth import kakao_auth_service
@@ -69,18 +70,19 @@ async def kakao_callback(code: str = Query(...), db: Session = Depends(get_db)):
         # 로그 기록
         create_log(db, "auth", "SUCCESS", f"카카오 로그인 성공 (user_id: {user.user_id})")
 
-        return JSONResponse(
-            content={
-                "message": "카카오 로그인 성공",
-                "user_id": user.user_id,
-                "status": "authenticated",
-            }
-        )
+        # Settings 페이지로 리다이렉트
+        return RedirectResponse(url="/settings?kakao_login=success", status_code=303)
 
     except Exception as e:
-        # 에러 로그 기록
-        create_log(db, "auth", "FAIL", f"카카오 로그인 실패: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"인증 실패: {str(e)}")
+        # 에러 로그 기록 (실패해도 계속 진행)
+        try:
+            create_log(db, "auth", "FAIL", f"카카오 로그인 실패: {str(e)}")
+        except:
+            pass
+
+        # 에러 발생 시에도 Settings 페이지로 리다이렉트
+        error_message = quote(str(e))
+        return RedirectResponse(url=f"/settings?kakao_login=error&message={error_message}", status_code=303)
 
 
 @router.get("/kakao/status")
@@ -228,18 +230,19 @@ async def google_callback(code: str = Query(...), db: Session = Depends(get_db))
         # 로그 기록
         create_log(db, "auth", "SUCCESS", f"구글 로그인 성공 (user_id: {user.user_id})")
 
-        return JSONResponse(
-            content={
-                "message": "구글 로그인 성공",
-                "user_id": user.user_id,
-                "status": "authenticated",
-            }
-        )
+        # Settings 페이지로 리다이렉트
+        return RedirectResponse(url="/settings?google_login=success", status_code=303)
 
     except Exception as e:
-        # 에러 로그 기록
-        create_log(db, "auth", "FAIL", f"구글 로그인 실패: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"인증 실패: {str(e)}")
+        # 에러 로그 기록 (실패해도 계속 진행)
+        try:
+            create_log(db, "auth", "FAIL", f"구글 로그인 실패: {str(e)}")
+        except:
+            pass
+
+        # 에러 발생 시에도 Settings 페이지로 리다이렉트
+        error_message = quote(str(e))
+        return RedirectResponse(url=f"/settings?google_login=error&message={error_message}", status_code=303)
 
 
 @router.get("/google/status")

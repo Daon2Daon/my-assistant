@@ -294,75 +294,75 @@ DELETE /api/scheduler/jobs/{job_id}
 **예상 작업량**: 기본 구조 변경
 
 **작업 항목**:
-- [ ] `base.html` 네비게이션 확장 (7개 메뉴)
-- [ ] `pages.py` 라우터 생성 (페이지 렌더링 통합)
-- [ ] `home.html` 템플릿 생성
-- [ ] `home.js` 스크립트 생성
-- [ ] 기존 `dashboard.py`, `dashboard.html`, `dashboard.js` 제거
+- [x] `base.html` 네비게이션 확장 (7개 메뉴)
+- [x] `pages.py` 라우터 생성 (페이지 렌더링 통합)
+- [x] `home.html` 템플릿 생성
+- [x] `home.js` 스크립트 생성
+- [x] 기존 `dashboard.py`, `dashboard.html`, `dashboard.js` 제거
 
 ### Phase R-2: Weather 페이지 분리
 
 **예상 작업량**: 중간
 
 **작업 항목**:
-- [ ] `weather.html` 템플릿 생성
-- [ ] `weather.js` 스크립트 생성
-- [ ] `weather.py` 라우터 생성 (API 확장)
-- [ ] 미리보기 기능 구현
-- [ ] 관련 로그 필터링 구현
+- [x] `weather.html` 템플릿 생성
+- [x] `weather.js` 스크립트 생성
+- [x] `weather.py` 라우터 생성 (API 확장)
+- [x] 미리보기 기능 구현
+- [x] 관련 로그 필터링 구현
 
 ### Phase R-3: Finance 페이지 분리
 
 **예상 작업량**: 중간
 
 **작업 항목**:
-- [ ] `finance.html` 템플릿 생성
-- [ ] `finance.js` 스크립트 생성
-- [ ] `finance.py` 라우터 생성 (API 확장)
-- [ ] US/KR 시장 개별 설정 UI
-- [ ] 미리보기 기능 구현
+- [x] `finance.html` 템플릿 생성
+- [x] `finance.js` 스크립트 생성
+- [x] `finance.py` 라우터 생성 (API 확장)
+- [x] US/KR 시장 개별 설정 UI
+- [x] 미리보기 기능 구현
 
 ### Phase R-4: Calendar 페이지 분리
 
 **예상 작업량**: 중간
 
 **작업 항목**:
-- [ ] `calendar.html` 템플릿 생성
-- [ ] `calendar.js` 스크립트 생성
-- [ ] `calendar.py` 라우터 생성 (API 확장)
-- [ ] 일정 미리보기 기능 구현
-- [ ] Google 연동 상태 통합
+- [x] `calendar.html` 템플릿 생성
+- [x] `calendar.js` 스크립트 생성
+- [x] `calendar.py` 라우터 생성 (API 확장)
+- [x] 일정 미리보기 기능 구현
+- [x] Google 연동 상태 통합
 
 ### Phase R-5: Logs 페이지 신설
 
 **예상 작업량**: 중간
 
 **작업 항목**:
-- [ ] `logs.html` 템플릿 생성
-- [ ] `logs.js` 스크립트 생성
-- [ ] `logs.py` API 확장 (페이지네이션, 통계)
-- [ ] 필터링 UI 구현
-- [ ] 로그 상세 모달 구현
+- [x] `logs.html` 템플릿 생성
+- [x] `logs.js` 스크립트 생성
+- [x] `logs.py` API 확장 (페이지네이션, 통계)
+- [x] 필터링 UI 구현
+- [x] 로그 상세 모달 구현
 
 ### Phase R-6: Settings 페이지 정리
 
 **예상 작업량**: 작음
 
 **작업 항목**:
-- [ ] `settings.html` 간소화 (전역 설정만 유지)
-- [ ] `settings.js` 수정
-- [ ] 각 봇 관련 설정을 개별 페이지로 이동 완료 확인
+- [x] `settings.html` 간소화 (전역 설정만 유지)
+- [x] `settings.js` 수정
+- [x] 각 봇 관련 설정을 개별 페이지로 이동 완료 확인
 
 ### Phase R-7: 통합 테스트 및 정리
 
 **예상 작업량**: 작음
 
 **작업 항목**:
-- [ ] 모든 페이지 동작 테스트
-- [ ] 네비게이션 동작 확인
-- [ ] 반응형 디자인 확인
-- [ ] 불필요 코드 제거
-- [ ] 문서 업데이트
+- [x] 모든 페이지 동작 테스트
+- [x] 네비게이션 동작 확인
+- [x] 반응형 디자인 확인
+- [x] 불필요 코드 제거
+- [x] 문서 업데이트
 
 ---
 
@@ -432,3 +432,122 @@ DELETE /api/scheduler/jobs/{job_id}
 - 코드 유지보수성 향상
 - 사용자 경험 개선 (명확한 네비게이션)
 - 향후 새로운 봇 추가 시 기존 코드 영향 최소화
+
+---
+
+## 11. 개편 완료 요약
+
+### 11.1 개편 완료 날짜
+
+**Phase R-1 ~ R-7 전체 완료: 2026-01-12**
+
+### 11.2 최종 파일 구조
+
+```
+app/
+├── routers/
+│   ├── auth.py           ✓ (유지)
+│   ├── pages.py          ✓ (신규) - 모든 페이지 렌더링 통합
+│   ├── logs.py           ✓ (유지, 확장)
+│   ├── reminders.py      ✓ (유지)
+│   ├── scheduler.py      ✓ (유지)
+│   ├── settings.py       ✓ (유지)
+│   ├── weather.py        ✓ (신규) - 날씨 전용 API
+│   ├── finance.py        ✓ (신규) - 금융 전용 API
+│   └── calendar.py       ✓ (신규) - 캘린더 전용 API
+├── templates/
+│   ├── base.html         ✓ (수정) - 7개 메뉴 네비게이션
+│   ├── home.html         ✓ (신규)
+│   ├── weather.html      ✓ (신규)
+│   ├── finance.html      ✓ (신규)
+│   ├── calendar.html     ✓ (신규)
+│   ├── reminders.html    ✓ (유지)
+│   ├── logs.html         ✓ (신규)
+│   └── settings.html     ✓ (수정) - 전역 설정만 유지
+└── static/js/
+    ├── app.js            ✓ (유지) - 공통 유틸리티
+    ├── home.js           ✓ (신규)
+    ├── weather.js        ✓ (신규)
+    ├── finance.js        ✓ (신규)
+    ├── calendar.js       ✓ (신규)
+    ├── reminders.js      ✓ (유지)
+    ├── logs.js           ✓ (신규)
+    └── settings.js       ✓ (수정) - Notification 관련 제거
+```
+
+### 11.3 삭제된 파일
+
+```
+✓ app/templates/dashboard.html  -> home.html로 대체
+✓ app/static/js/dashboard.js    -> home.js로 대체
+✓ app/routers/dashboard.py      -> pages.py로 통합
+```
+
+### 11.4 신규 API 엔드포인트
+
+**Weather API** (weather.py):
+- GET  /api/weather/status
+- GET  /api/weather/preview
+- POST /api/weather/test
+- GET  /api/weather/logs
+
+**Finance API** (finance.py):
+- GET  /api/finance/status
+- GET  /api/finance/preview/us
+- GET  /api/finance/preview/kr
+- POST /api/finance/test/us
+- POST /api/finance/test/kr
+- GET  /api/finance/logs
+
+**Calendar API** (calendar.py):
+- GET  /api/calendar/status
+- GET  /api/calendar/preview
+- POST /api/calendar/test
+- GET  /api/calendar/logs
+
+**Logs API** (logs.py - 확장):
+- GET  /api/logs (페이지네이션, 필터링 추가)
+- GET  /api/logs/stats
+
+### 11.5 개편 성과
+
+1. **기능 분리 완료**: 각 봇(Weather, Finance, Calendar)이 독립 페이지를 가짐
+2. **코드 중복 제거**: Settings 페이지에서 중복 기능 제거
+3. **확장성 확보**: 새로운 봇 추가 시 기존 코드 수정 최소화
+4. **사용자 경험 향상**: 7개 명확한 네비게이션 메뉴
+5. **유지보수성 향상**: 각 기능별 독립적 개발/테스트 가능
+
+### 11.6 주요 변경 사항
+
+| 항목 | 변경 전 | 변경 후 |
+|------|---------|---------|
+| 메인 페이지 | Dashboard (과부하) | Home (상태 개요만) |
+| 날씨 설정 | Dashboard + Settings | Weather 전용 페이지 |
+| 금융 설정 | Dashboard + Settings | Finance 전용 페이지 |
+| 캘린더 설정 | Dashboard + Settings | Calendar 전용 페이지 |
+| 로그 확인 | Dashboard (제한적) | Logs 전용 페이지 (필터링) |
+| Settings | 모든 설정 포함 | 전역 설정만 (인증, 스케줄러) |
+
+### 11.7 다음 단계 권장사항
+
+개편이 완료되었으므로 다음 단계로 각 봇의 기능을 확장할 수 있습니다:
+
+**Weather 확장**:
+- 다중 도시 지원
+- 주간 예보
+- 미세먼지 상세 정보
+
+**Finance 확장**:
+- 관심 종목 관리
+- 가격 알림
+- 포트폴리오 추적
+
+**Calendar 확장**:
+- 다중 캘린더 선택
+- 일정 유형별 필터
+- 일정 미리 알림
+
+**Reminders 확장**:
+- 반복 알림
+- 카테고리/태그
+- 첨부파일

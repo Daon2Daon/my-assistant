@@ -2,10 +2,39 @@
 
 document.addEventListener('DOMContentLoaded', function() {
     loadSettingsAuthStatus();
-    loadSettingsData();
     loadSettingsJobs();
-    setupSettingToggles();
+    checkLoginStatus();
 });
+
+// Check login status from URL query parameters
+function checkLoginStatus() {
+    const urlParams = new URLSearchParams(window.location.search);
+
+    // Kakao login status
+    if (urlParams.get('kakao_login') === 'success') {
+        showSettingsResult('카카오 로그인 성공', 'success');
+        // Remove query parameters from URL
+        window.history.replaceState({}, document.title, '/settings');
+        // Reload auth status
+        loadSettingsAuthStatus();
+    } else if (urlParams.get('kakao_login') === 'error') {
+        const message = decodeURIComponent(urlParams.get('message') || '카카오 로그인 실패');
+        showSettingsResult(`카카오 로그인 실패: ${message}`, 'danger');
+        window.history.replaceState({}, document.title, '/settings');
+    }
+
+    // Google login status
+    if (urlParams.get('google_login') === 'success') {
+        showSettingsResult('구글 로그인 성공', 'success');
+        window.history.replaceState({}, document.title, '/settings');
+        // Reload auth status
+        loadSettingsAuthStatus();
+    } else if (urlParams.get('google_login') === 'error') {
+        const message = decodeURIComponent(urlParams.get('message') || '구글 로그인 실패');
+        showSettingsResult(`구글 로그인 실패: ${message}`, 'danger');
+        window.history.replaceState({}, document.title, '/settings');
+    }
+}
 
 // Load auth status for settings page
 async function loadSettingsAuthStatus() {
@@ -46,41 +75,6 @@ async function loadSettingsAuthStatus() {
     } catch (error) {
         console.error('Failed to load auth status:', error);
     }
-}
-
-// Load settings data
-async function loadSettingsData() {
-    try {
-        const data = await fetchApi('/api/settings');
-
-        data.forEach(setting => {
-            // Set toggle state
-            const toggle = document.getElementById(`settings-${setting.category}-toggle`);
-            if (toggle) {
-                toggle.checked = setting.is_active;
-            }
-
-            // Set time if available
-            if (setting.notification_time) {
-                const timeInput = getTimeInputForCategory(setting.category);
-                if (timeInput) {
-                    timeInput.value = setting.notification_time;
-                }
-            }
-        });
-    } catch (error) {
-        console.error('Failed to load settings:', error);
-    }
-}
-
-// Get time input element for category
-function getTimeInputForCategory(category) {
-    const mapping = {
-        'weather': 'weather-time',
-        'finance': 'us-market-time',  // Finance uses US market time as primary
-        'calendar': 'calendar-time'
-    };
-    return document.getElementById(mapping[category]);
 }
 
 // Load registered jobs
@@ -127,57 +121,6 @@ function getJobIcon(jobId) {
     if (jobId.includes('calendar')) return 'bi-calendar-event text-primary';
     if (jobId.includes('reminder')) return 'bi-bell text-warning';
     return 'bi-clock';
-}
-
-// Setup setting toggles
-function setupSettingToggles() {
-    document.querySelectorAll('.setting-toggle').forEach(toggle => {
-        toggle.addEventListener('change', async function() {
-            const category = this.dataset.category;
-            const isActive = this.checked;
-
-            try {
-                await fetchApi(`/api/settings/${category}`, {
-                    method: 'PUT',
-                    body: JSON.stringify({ is_active: isActive })
-                });
-                showSettingsResult(`${category} ${isActive ? 'enabled' : 'disabled'}`, 'success');
-            } catch (error) {
-                this.checked = !isActive;
-                showSettingsResult('Failed to update setting', 'danger');
-            }
-        });
-    });
-}
-
-// Register job
-async function registerJob(type) {
-    let hour, minute;
-
-    // Get time based on type
-    if (type === 'weather') {
-        const time = document.getElementById('weather-time').value;
-        [hour, minute] = time.split(':').map(Number);
-    } else if (type === 'finance/us') {
-        const time = document.getElementById('us-market-time').value;
-        [hour, minute] = time.split(':').map(Number);
-    } else if (type === 'finance/kr') {
-        const time = document.getElementById('kr-market-time').value;
-        [hour, minute] = time.split(':').map(Number);
-    } else if (type === 'calendar') {
-        const time = document.getElementById('calendar-time').value;
-        [hour, minute] = time.split(':').map(Number);
-    }
-
-    try {
-        const data = await fetchApi(`/api/scheduler/jobs/${type}?hour=${hour}&minute=${minute}`, {
-            method: 'POST'
-        });
-        showSettingsResult(data.message, 'success');
-        loadSettingsJobs();
-    } catch (error) {
-        showSettingsResult(error.message || 'Failed to register job', 'danger');
-    }
 }
 
 // Delete job from settings

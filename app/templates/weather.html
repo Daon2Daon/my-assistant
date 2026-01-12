@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block title %}Weather - My-Kakao-Assistant{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h2><i class="bi bi-cloud-sun me-2"></i>Weather</h2>
+        <p class="text-muted">날씨 알림 관리 페이지</p>
+    </div>
+</div>
+
+<!-- 상태 카드 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>상태</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <!-- 활성화 토글 -->
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label fw-bold">활성화</label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="weather-active-toggle">
+                            <label class="form-check-label" id="active-status-label">Loading...</label>
+                        </div>
+                    </div>
+
+                    <!-- 다음 발송 예정 시간 -->
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label fw-bold">다음 발송 예정</label>
+                        <p id="next-run-time" class="mb-0 text-muted">-</p>
+                    </div>
+
+                    <!-- 마지막 발송 결과 -->
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label fw-bold">마지막 발송</label>
+                        <p id="last-run-info" class="mb-0 text-muted">-</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 설정 섹션 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-gear me-2"></i>설정</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <!-- 알림 시간 설정 -->
+                    <div class="col-md-6 mb-3">
+                        <label for="notification-time" class="form-label fw-bold">알림 시간</label>
+                        <input type="time" class="form-control" id="notification-time" value="07:00">
+                        <small class="text-muted">매일 지정된 시간에 날씨 알림을 발송합니다</small>
+                    </div>
+
+                    <!-- 도시 설정 (향후 확장) -->
+                    <div class="col-md-6 mb-3">
+                        <label for="city-select" class="form-label fw-bold">도시</label>
+                        <select class="form-select" id="city-select">
+                            <option value="Seoul" selected>서울</option>
+                            <option value="Busan">부산</option>
+                            <option value="Incheon">인천</option>
+                            <option value="Daegu">대구</option>
+                            <option value="Daejeon">대전</option>
+                            <option value="Gwangju">광주</option>
+                            <option value="Ulsan">울산</option>
+                        </select>
+                        <small class="text-muted">날씨 정보를 가져올 도시를 선택하세요</small>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-12">
+                        <button class="btn btn-primary" onclick="saveSettings()">
+                            <i class="bi bi-save me-1"></i>설정 저장
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 테스트 섹션 -->
+<div class="row mb-4">
+    <div class="col-md-6 mb-3">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-lightning me-2"></i>테스트</h5>
+            </div>
+            <div class="card-body">
+                <button class="btn btn-success w-100 mb-2" onclick="testWeatherNotification()">
+                    <i class="bi bi-send me-1"></i>즉시 테스트 발송
+                </button>
+                <button class="btn btn-outline-info w-100" onclick="loadPreview()">
+                    <i class="bi bi-eye me-1"></i>메시지 미리보기
+                </button>
+                <div id="test-result" class="mt-3"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 미리보기 -->
+    <div class="col-md-6 mb-3">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-eye me-2"></i>미리보기</h5>
+            </div>
+            <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                <div id="message-preview">
+                    <div class="text-center text-muted py-3">
+                        <i class="bi bi-chat-text fs-1 d-block mb-2"></i>
+                        <p class="mb-0">미리보기 버튼을 클릭하세요</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 관련 로그 -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-journal-text me-2"></i>최근 로그</h5>
+                <button class="btn btn-sm btn-outline-primary" onclick="loadLogs()">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+            <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                <div id="logs-container">
+                    <div class="text-center text-muted py-3">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        <span class="ms-2">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/weather.js"></script>
+{% endblock %}

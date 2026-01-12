@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+
+{% block title %}Logs - My-Kakao-Assistant{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h2><i class="bi bi-journal-text me-2"></i>Logs</h2>
+        <p class="text-muted">전체 로그 조회 페이지</p>
+    </div>
+</div>
+
+<!-- 통계 카드 -->
+<div class="row mb-4">
+    <div class="col-md-3 mb-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted mb-2">전체 로그</h6>
+                <h3 id="total-logs" class="mb-0">-</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card text-center border-success">
+            <div class="card-body">
+                <h6 class="text-muted mb-2">성공</h6>
+                <h3 id="success-count" class="mb-0 text-success">-</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card text-center border-danger">
+            <div class="card-body">
+                <h6 class="text-muted mb-2">실패</h6>
+                <h3 id="fail-count" class="mb-0 text-danger">-</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card text-center border-warning">
+            <div class="card-body">
+                <h6 class="text-muted mb-2">스킵</h6>
+                <h3 id="skip-count" class="mb-0 text-warning">-</h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 필터 섹션 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-funnel me-2"></i>필터</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <!-- 카테고리 필터 -->
+                    <div class="col-md-4 mb-3">
+                        <label for="category-filter" class="form-label fw-bold">카테고리</label>
+                        <select class="form-select" id="category-filter">
+                            <option value="">전체</option>
+                            <option value="weather">Weather</option>
+                            <option value="finance">Finance</option>
+                            <option value="calendar">Calendar</option>
+                            <option value="memo">Memo</option>
+                        </select>
+                    </div>
+
+                    <!-- 상태 필터 -->
+                    <div class="col-md-4 mb-3">
+                        <label for="status-filter" class="form-label fw-bold">상태</label>
+                        <select class="form-select" id="status-filter">
+                            <option value="">전체</option>
+                            <option value="SUCCESS">Success</option>
+                            <option value="FAIL">Fail</option>
+                            <option value="SKIP">Skip</option>
+                        </select>
+                    </div>
+
+                    <!-- 표시 개수 -->
+                    <div class="col-md-4 mb-3">
+                        <label for="limit-select" class="form-label fw-bold">표시 개수</label>
+                        <select class="form-select" id="limit-select">
+                            <option value="20">20개</option>
+                            <option value="50" selected>50개</option>
+                            <option value="100">100개</option>
+                            <option value="200">200개</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-12">
+                        <button class="btn btn-primary" onclick="applyFilters()">
+                            <i class="bi bi-search me-1"></i>검색
+                        </button>
+                        <button class="btn btn-outline-secondary ms-2" onclick="resetFilters()">
+                            <i class="bi bi-x-circle me-1"></i>초기화
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 로그 테이블 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-list-ul me-2"></i>로그 목록</h5>
+                <div>
+                    <span id="logs-count-info" class="text-muted me-3">-</span>
+                    <button class="btn btn-sm btn-outline-primary" onclick="loadLogs()">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th style="width: 100px;">카테고리</th>
+                                <th style="width: 100px;">상태</th>
+                                <th>메시지</th>
+                                <th style="width: 180px;">시간</th>
+                                <th style="width: 80px;">상세</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logs-table-body">
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-4">
+                                    <div class="spinner-border spinner-border-sm" role="status"></div>
+                                    <span class="ms-2">Loading...</span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 페이지네이션 -->
+<div class="row">
+    <div class="col-12">
+        <nav>
+            <ul class="pagination justify-content-center" id="pagination">
+                <!-- 페이지네이션 버튼이 동적으로 생성됩니다 -->
+            </ul>
+        </nav>
+    </div>
+</div>
+
+<!-- 로그 상세 모달 -->
+<div class="modal fade" id="logDetailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">로그 상세</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="fw-bold">카테고리</label>
+                    <p id="modal-category" class="mb-0">-</p>
+                </div>
+                <div class="mb-3">
+                    <label class="fw-bold">상태</label>
+                    <p id="modal-status" class="mb-0">-</p>
+                </div>
+                <div class="mb-3">
+                    <label class="fw-bold">시간</label>
+                    <p id="modal-time" class="mb-0">-</p>
+                </div>
+                <div class="mb-3">
+                    <label class="fw-bold">메시지</label>
+                    <pre id="modal-message" class="bg-light p-3 rounded" style="white-space: pre-wrap;">-</pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/logs.js"></script>
+{% endblock %}

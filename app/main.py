@@ -7,7 +7,8 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from app.config import settings
-from app.routers import auth, scheduler, reminders, dashboard, settings as settings_router, logs
+from app.database import init_db
+from app.routers import auth, scheduler, reminders, pages, settings as settings_router, logs, weather, finance, calendar
 from app.services.scheduler import scheduler_service
 from app.services.bots.memo_bot import memo_bot
 
@@ -28,9 +29,12 @@ app.include_router(scheduler.router)
 app.include_router(reminders.router)
 app.include_router(settings_router.router)
 app.include_router(logs.router)
+app.include_router(weather.router)
+app.include_router(finance.router)
+app.include_router(calendar.router)
 
-# Dashboard 라우터 (페이지 렌더링) - 마지막에 등록
-app.include_router(dashboard.router)
+# Pages 라우터 (페이지 렌더링) - 마지막에 등록
+app.include_router(pages.router)
 
 
 @app.get("/health")
@@ -51,6 +55,9 @@ async def startup_event():
     """
     print("🚀 My-Kakao-Assistant 시작")
     print(f"🔧 DEBUG 모드: {settings.DEBUG}")
+
+    # 데이터베이스 초기화
+    init_db()
 
     # 스케줄러 시작
     scheduler_service.start()

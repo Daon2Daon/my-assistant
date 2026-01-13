@@ -5,7 +5,7 @@
 * **프로젝트명**: My-Kakao-Assistant
 * **목표**: 파이썬 자동화 스크립트를 통해 반복적인 정보 확인 과정을 생략하고, 중요한 일정과 메모를 적시에 메신저로 수신함.
 * **주요 기능**: 날씨/금융/일정 정기 브리핑 + **예약 메모 알림**.
-* **플랫폼**: Web Dashboard (설정용) + KakaoTalk (수신용).
+* **플랫폼**: Web Dashboard (설정용) + **KakaoTalk & Telegram** (수신용 - 다중 채널 지원).
 
 ## 2. 시스템 아키텍처
 
@@ -14,7 +14,9 @@
 * **Database**: SQLite (파일 기반 RDBMS, 백업 및 관리 용이)
 * **Scheduler**: APScheduler (`BackgroundScheduler` - 정기 작업 및 예약 작업 처리)
 * **External APIs**:
-* **Messaging**: Kakao Developers (REST API - 나에게 보내기)
+* **Messaging**:
+  * Kakao Developers (REST API - 나에게 보내기)
+  * Telegram Bot API (다중 채널 알림 지원)
 * **Data**: OpenWeatherMap(날씨), Yahoo Finance/PyKRX(금융), Google Calendar API(일정)
 
 
@@ -32,6 +34,13 @@
 * **구글 계정 연동**
 * Google Calendar API (`calendar.readonly`) 권한 획득.
 * Offline Access 설정을 통해 장기 사용 가능한 Refresh Token 확보.
+
+
+* **텔레그램 봇 연동 (신규)**
+* Telegram Bot API를 통한 메시지 발송.
+* 사용자가 봇에 `/start` 명령 전송 후 Chat ID 획득.
+* Settings 페이지에서 Chat ID 입력 및 연동 완료.
+* 카카오톡과 독립적으로 동작하며, 양쪽 모두 연동 시 다중 채널 발송.
 
 
 
@@ -110,6 +119,7 @@ CREATE TABLE IF NOT EXISTS users (
     google_access_token TEXT,
     google_refresh_token TEXT,
     google_token_expiry DATETIME,
+    telegram_chat_id TEXT, -- Telegram Chat ID (신규)
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -171,4 +181,36 @@ CREATE TABLE IF NOT EXISTS logs (
 4. **4주차: UI 개발 및 배포**
 * Jinja2 템플릿 또는 Streamlit을 이용한 관리자 대시보드 제작.
 * 메모 입력 폼 및 예약 확인 리스트 UI 구현.
-* Docker 패키징 및 로컬 서버(또는 NAS) 배포.# my-assistant
+* Docker 패키징 및 로컬 서버(또는 NAS) 배포.
+
+## 6. 다중 채널 알림 (Multi-Channel Notification)
+
+### 6.1 지원 채널
+* **KakaoTalk**: OAuth 2.0 연동, 나에게 보내기 API 사용
+* **Telegram**: Bot API 연동, Chat ID 기반 메시지 발송
+
+### 6.2 발송 로직
+* **NotificationService**: 채널 독립적인 추상화 계층
+* **자동 감지**: 연동된 채널을 자동으로 감지하여 발송
+* **다중 발송**: 양쪽 모두 연동 시 양쪽 모두 알림 전송
+* **에러 처리**: 한쪽 채널 실패 시에도 다른 쪽으로 정상 발송
+
+### 6.3 연동 방법
+* **KakaoTalk**: Settings > Authentication > Kakao Talk > Connect
+* **Telegram**: Settings > Authentication > Telegram Bot > Connect
+  * 자세한 연동 방법은 [Telegram Setup Guide](docs/telegram-setup-guide.md) 참조
+
+### 6.4 채널별 발송 조건
+
+| KakaoTalk | Telegram | 동작 |
+|-----------|----------|------|
+| ✓ | ✓ | 양쪽 모두 발송 |
+| ✓ | ✗ | KakaoTalk만 발송 |
+| ✗ | ✓ | Telegram만 발송 |
+| ✗ | ✗ | 발송 실패 (로그 기록) |
+
+## 7. 추가 문서
+
+* [Telegram 설정 및 테스트 가이드](docs/telegram-setup-guide.md)
+* [UI 구조 개편 계획서](docs/restructuringplan.md)
+* [Telegram 추가 구현 계획서](docs/telegramaddplan.md)

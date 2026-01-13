@@ -3,7 +3,8 @@
 지정된 시간에 메모를 카카오톡으로 발송
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Optional
 from app.database import SessionLocal
 from app.crud import (
@@ -13,7 +14,7 @@ from app.crud import (
     update_reminder_sent_status,
     get_reminders,
 )
-from app.services.auth.kakao_auth import kakao_auth_service
+from app.services.notification import notification_service
 from app.services.scheduler import scheduler_service
 
 
@@ -23,20 +24,35 @@ class MemoBot:
     def __init__(self):
         pass
 
-    def format_memo_message(self, content: str) -> str:
+    def format_memo_message(self, content: str, target_datetime: datetime = None) -> str:
         """
         메모 내용을 메시지 형식으로 포맷팅
 
         Args:
             content: 메모 내용
+            target_datetime: 예약된 시간 (옵션)
 
         Returns:
             str: 포맷팅된 메시지
         """
-        now = datetime.now()
+        # 한국 시간대로 변환
+        kst = ZoneInfo("Asia/Seoul")
+
+        if target_datetime:
+            # target_datetime이 있으면 사용 (예약된 정확한 시간)
+            if target_datetime.tzinfo is None:
+                # timezone 정보가 없으면 UTC로 간주
+                dt_utc = target_datetime.replace(tzinfo=timezone.utc)
+            else:
+                dt_utc = target_datetime
+            dt_kst = dt_utc.astimezone(kst)
+        else:
+            # 없으면 현재 시간 사용
+            dt_kst = datetime.now(timezone.utc).astimezone(kst)
+
         message = f"""[예약 메모 알림]
 
-{now.strftime('%Y년 %m월 %d일 %H:%M')}
+{dt_kst.strftime('%Y년 %m월 %d일 %H:%M')}
 
 {content}"""
         return message
@@ -66,35 +82,40 @@ class MemoBot:
             # 사용자 조회
             user = get_or_create_user(db)
 
-            if not user.kakao_access_token:
-                create_log(db, "memo", "FAIL", f"카카오 토큰이 없습니다 (reminder_id: {reminder_id})")
-                print("카카오 로그인이 필요합니다")
+            # 연동된 채널 확인
+            available_channels = notification_service.get_available_channels(user)
+            if not available_channels:
+                create_log(db, "memo", "FAIL", f"연동된 알림 채널이 없습니다 (reminder_id: {reminder_id})")
+                print("⚠️  알림 채널 연동이 필요합니다 (카카오톡 또는 텔레그램)")
                 return
 
-            # 메시지 포맷팅
-            message = self.format_memo_message(reminder.message_content)
+            # 메시지 포맷팅 (예약된 시간을 포함)
+            message = self.format_memo_message(reminder.message_content, reminder.target_datetime)
 
-            # 카카오톡 메시지 발송
+            # 알림 발송 (연동된 모든 채널로 자동 발송)
             try:
-                await kakao_auth_service.send_message_to_me(
-                    user.kakao_access_token, message
-                )
+                result = await notification_service.send(user, message)
 
-                # 발송 상태 업데이트
-                update_reminder_sent_status(db, reminder_id, is_sent=True)
+                if result.success:
+                    # 발송 상태 업데이트
+                    update_reminder_sent_status(db, reminder_id, is_sent=True)
 
-                # 성공 로그
-                create_log(
-                    db,
-                    "memo",
-                    "SUCCESS",
-                    f"메모 알림 발송 성공 (reminder_id: {reminder_id}, user_id: {user.user_id})",
-                )
-                print(f"메모 알림 발송 완료 - reminder_id: {reminder_id}")
+                    # 성공 로그
+                    create_log(
+                        db,
+                        "memo",
+                        "SUCCESS",
+                        f"메모 알림 발송 성공 (reminder_id: {reminder_id}, {result.message})",
+                    )
+                    print(f"✅ 메모 알림 발송 완료 - reminder_id: {reminder_id}")
+                else:
+                    # 실패 로그
+                    create_log(db, "memo", "FAIL", f"알림 발송 실패: {result.message} (reminder_id: {reminder_id})")
+                    print(f"❌ 알림 발송 실패: {result.message}")
 
             except Exception as e:
-                create_log(db, "memo", "FAIL", f"메시지 발송 실패: {str(e)} (reminder_id: {reminder_id})")
-                print(f"메시지 발송 실패: {e}")
+                create_log(db, "memo", "FAIL", f"알림 발송 오류: {str(e)} (reminder_id: {reminder_id})")
+                print(f"❌ 알림 발송 오류: {e}")
 
         except Exception as e:
             create_log(db, "memo", "FAIL", f"메모 알림 오류: {str(e)}")
@@ -153,7 +174,12 @@ class MemoBot:
 
             for reminder in pending_reminders:
                 # 이미 지난 시간의 메모는 건너뜀
-                if reminder.target_datetime <= datetime.now():
+                now_utc = datetime.now(timezone.utc)
+                target_dt = reminder.target_datetime
+                if target_dt.tzinfo is None:
+                    target_dt = target_dt.replace(tzinfo=timezone.utc)
+
+                if target_dt <= now_utc:
                     skipped_count += 1
                     continue
 

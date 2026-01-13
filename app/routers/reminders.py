@@ -3,7 +3,7 @@ Reminders API 라우터
 예약 메모 CRUD 및 스케줄링 엔드포인트
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse
@@ -116,7 +116,7 @@ async def create_new_reminder(
     """
     try:
         # 과거 시간 체크
-        if request.target_datetime <= datetime.now():
+        if request.target_datetime <= datetime.now(timezone.utc):
             raise HTTPException(
                 status_code=400, detail="발송 시간은 현재 시간 이후여야 합니다"
             )

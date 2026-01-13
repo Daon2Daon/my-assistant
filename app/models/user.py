@@ -27,6 +27,9 @@ class User(Base):
     google_refresh_token = Column(String, nullable=True)
     google_token_expiry = Column(DateTime, nullable=True)
 
+    # Telegram 연동
+    telegram_chat_id = Column(String, nullable=True)
+
     # 메타데이터
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 

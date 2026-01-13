@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 from app.database import SessionLocal
 from app.crud import get_or_create_user, create_log, is_setting_active
 from app.services.auth.google_auth import google_auth_service
-from app.services.auth.kakao_auth import kakao_auth_service
+from app.services.notification import notification_service
 
 
 class CalendarBot:
@@ -171,24 +171,34 @@ class CalendarBot:
             # 메시지 포맷팅
             message = self.format_calendar_message(events)
 
-            # 카카오톡 메시지 발송
-            try:
-                await kakao_auth_service.send_message_to_me(
-                    user.kakao_access_token, message
-                )
+            # 연동된 채널 확인
+            available_channels = notification_service.get_available_channels(user)
+            if not available_channels:
+                create_log(db, "calendar", "FAIL", "연동된 알림 채널이 없습니다")
+                print("⚠️  알림 채널 연동이 필요합니다 (카카오톡 또는 텔레그램)")
+                return
 
-                # 성공 로그
-                create_log(
-                    db,
-                    "calendar",
-                    "SUCCESS",
-                    f"캘린더 알림 발송 성공 - {len(events)}개 일정 (user_id: {user.user_id})",
-                )
-                print(f"캘린더 알림 발송 완료 - {len(events)}개 일정")
+            # 알림 발송 (연동된 모든 채널로 자동 발송)
+            try:
+                result = await notification_service.send(user, message)
+
+                if result.success:
+                    # 성공 로그
+                    create_log(
+                        db,
+                        "calendar",
+                        "SUCCESS",
+                        f"캘린더 알림 발송 성공 - {len(events)}개 일정 ({result.message})",
+                    )
+                    print(f"✅ 캘린더 알림 발송 완료 - {len(events)}개 일정")
+                else:
+                    # 실패 로그
+                    create_log(db, "calendar", "FAIL", f"알림 발송 실패: {result.message}")
+                    print(f"❌ 알림 발송 실패: {result.message}")
 
             except Exception as e:
-                create_log(db, "calendar", "FAIL", f"메시지 발송 실패: {str(e)}")
-                print(f"메시지 발송 실패: {e}")
+                create_log(db, "calendar", "FAIL", f"알림 발송 오류: {str(e)}")
+                print(f"❌ 알림 발송 오류: {e}")
 
         except Exception as e:
             create_log(db, "calendar", "FAIL", f"캘린더 알림 오류: {str(e)}")

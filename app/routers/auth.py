@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
 from urllib.parse import quote
+from pydantic import BaseModel
 
 from app.database import get_db
 from app.services.auth.kakao_auth import kakao_auth_service
@@ -15,10 +16,25 @@ from app.crud import (
     get_or_create_user,
     update_user_kakao_tokens,
     update_user_google_tokens,
+    update_user_telegram_chat_id,
+    disconnect_user_telegram,
     create_log,
 )
+from app.services.notification import notification_service
+from app.config import settings
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+# ============================================================
+# Request Models
+# ============================================================
+
+
+class TelegramVerifyRequest(BaseModel):
+    """텔레그램 연동 확인 요청"""
+
+    chat_id: str
 
 
 # ============================================================
@@ -342,3 +358,208 @@ async def google_test_calendar(db: Session = Depends(get_db)):
     except Exception as e:
         create_log(db, "calendar", "FAIL", f"캘린더 일정 조회 실패: {str(e)}")
         raise HTTPException(status_code=500, detail=f"일정 조회 실패: {str(e)}")
+
+
+# ============================================================
+# 텔레그램 연동
+# ============================================================
+
+
+@router.get("/telegram/start")
+async def telegram_start():
+    """
+    텔레그램 연동 시작
+    봇 정보 및 연동 방법 안내 반환
+
+    Returns:
+        봇 링크 및 연동 방법
+    """
+    try:
+        # 봇 토큰에서 봇 username 추출 (간단히 구현)
+        bot_token = settings.TELEGRAM_BOT_TOKEN
+
+        if not bot_token or bot_token == "your_telegram_bot_token":
+            raise HTTPException(
+                status_code=500,
+                detail="텔레그램 봇 토큰이 설정되지 않았습니다. TELEGRAM_BOT_TOKEN 환경변수를 설정해주세요.",
+            )
+
+        # 봇 정보 조회
+        from app.services.notification import telegram_sender
+
+        bot_info = await telegram_sender.get_bot_info()
+
+        if not bot_info or not bot_info.get("ok"):
+            raise HTTPException(status_code=500, detail="텔레그램 봇 정보 조회 실패")
+
+        bot_data = bot_info.get("result", {})
+        bot_username = bot_data.get("username", "")
+
+        if not bot_username:
+            raise HTTPException(status_code=500, detail="봇 username을 찾을 수 없습니다")
+
+        bot_link = f"https://t.me/{bot_username}"
+
+        return JSONResponse(
+            content={
+                "bot_username": bot_username,
+                "bot_link": bot_link,
+                "instructions": [
+                    "1. 아래 링크를 클릭하여 텔레그램 봇을 엽니다",
+                    "2. /start 명령을 전송합니다",
+                    "3. 봇이 응답한 Chat ID를 복사합니다",
+                    "4. 아래 입력란에 Chat ID를 입력하고 '연동하기'를 클릭합니다",
+                ],
+                "message": "텔레그램 연동을 시작합니다",
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"봇 정보 조회 실패: {str(e)}")
+
+
+@router.post("/telegram/verify")
+async def telegram_verify(
+    request: TelegramVerifyRequest, db: Session = Depends(get_db)
+):
+    """
+    텔레그램 연동 확인
+    사용자가 입력한 chat_id를 검증하고 DB에 저장
+
+    Args:
+        request: chat_id를 포함한 요청 body
+        db: 데이터베이스 세션
+    """
+    try:
+        # chat_id 검증
+        chat_id = request.chat_id.strip() if request.chat_id else ""
+
+        if not chat_id:
+            raise HTTPException(status_code=400, detail="Chat ID를 입력해주세요")
+
+        # 사용자 조회
+        user = get_or_create_user(db)
+
+        # DB에 chat_id 저장
+        update_user_telegram_chat_id(db, user.user_id, chat_id)
+
+        # 로그 기록
+        create_log(
+            db,
+            "auth",
+            "SUCCESS",
+            f"텔레그램 연동 성공 (user_id: {user.user_id}, chat_id: {chat_id})",
+        )
+
+        return JSONResponse(
+            content={
+                "message": "텔레그램 연동 성공",
+                "user_id": user.user_id,
+                "chat_id": chat_id,
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        create_log(db, "auth", "FAIL", f"텔레그램 연동 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"연동 실패: {str(e)}")
+
+
+@router.post("/telegram/disconnect")
+async def telegram_disconnect(db: Session = Depends(get_db)):
+    """
+    텔레그램 연동 해제
+    DB에서 chat_id 제거
+    """
+    try:
+        user = get_or_create_user(db)
+
+        if not user.telegram_chat_id:
+            raise HTTPException(status_code=400, detail="연동된 텔레그램이 없습니다")
+
+        # DB에서 chat_id 제거
+        disconnect_user_telegram(db, user.user_id)
+
+        # 로그 기록
+        create_log(
+            db,
+            "auth",
+            "SUCCESS",
+            f"텔레그램 연동 해제 (user_id: {user.user_id})",
+        )
+
+        return JSONResponse(
+            content={
+                "message": "텔레그램 연동 해제 성공",
+                "user_id": user.user_id,
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        create_log(db, "auth", "FAIL", f"텔레그램 연동 해제 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"연동 해제 실패: {str(e)}")
+
+
+@router.get("/telegram/status")
+async def telegram_status(db: Session = Depends(get_db)):
+    """
+    텔레그램 연동 상태 확인
+    현재 사용자의 텔레그램 chat_id 보유 여부 확인
+    """
+    user = get_or_create_user(db)
+
+    has_telegram = bool(user.telegram_chat_id)
+
+    return JSONResponse(
+        content={
+            "user_id": user.user_id,
+            "telegram_connected": has_telegram,
+            "chat_id": user.telegram_chat_id if has_telegram else None,
+        }
+    )
+
+
+@router.post("/telegram/test")
+async def telegram_test_message(db: Session = Depends(get_db)):
+    """
+    텔레그램 메시지 발송 테스트
+    현재 연동된 사용자에게 테스트 메시지 발송
+    """
+    try:
+        user = get_or_create_user(db)
+
+        if not user.telegram_chat_id:
+            raise HTTPException(
+                status_code=400, detail="텔레그램 연동이 필요합니다"
+            )
+
+        # 테스트 메시지 발송
+        message = "🎉 My-Kakao-Assistant 텔레그램 연동 테스트 메시지입니다!\n텔레그램 연동이 정상적으로 완료되었습니다."
+
+        result = await notification_service.send_to_telegram(user, message)
+
+        if not result:
+            raise HTTPException(status_code=500, detail="메시지 발송 실패")
+
+        # 로그 기록
+        create_log(
+            db, "memo", "SUCCESS", f"텔레그램 테스트 메시지 발송 성공 (user_id: {user.user_id})"
+        )
+
+        return JSONResponse(
+            content={
+                "message": "테스트 메시지 발송 성공",
+                "chat_id": user.telegram_chat_id,
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        create_log(db, "memo", "FAIL", f"텔레그램 테스트 메시지 발송 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"메시지 발송 실패: {str(e)}")

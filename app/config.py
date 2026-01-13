@@ -29,6 +29,9 @@ class Settings:
     # OpenWeatherMap
     OPENWEATHER_API_KEY: str = os.getenv("OPENWEATHER_API_KEY", "")
 
+    # Telegram Bot
+    TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./data/assistant.db")
 

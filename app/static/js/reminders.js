@@ -10,12 +10,17 @@ document.addEventListener('DOMContentLoaded', function() {
     setMinDateTime();
 });
 
-// Set minimum datetime to now
+// Set minimum date to today
 function setMinDateTime() {
     const now = new Date();
-    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-    const minDateTime = now.toISOString().slice(0, 16);
-    document.getElementById('target_datetime').min = minDateTime;
+    const minDate = now.toISOString().split('T')[0];
+    document.getElementById('target_date').min = minDate;
+
+    // Set default values to tomorrow 09:00
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    document.getElementById('target_date').value = tomorrow.toISOString().split('T')[0];
+    document.getElementById('target_time').value = '09:00';
 }
 
 // Setup form submission
@@ -26,15 +31,32 @@ function setupForm() {
         e.preventDefault();
 
         const messageContent = document.getElementById('message_content').value.trim();
-        const targetDatetime = document.getElementById('target_datetime').value;
+        const targetDate = document.getElementById('target_date').value;
+        const targetTime = document.getElementById('target_time').value;
 
-        if (!messageContent || !targetDatetime) {
+        if (!messageContent || !targetDate || !targetTime) {
             showFormResult('Please fill in all fields', 'warning');
             return;
         }
 
-        // Convert to ISO format
-        const isoDatetime = new Date(targetDatetime).toISOString();
+        // Combine date and time and convert to ISO format with timezone
+        // Create a date object in local timezone
+        const localDateTime = new Date(`${targetDate}T${targetTime}`);
+
+        // Validate datetime
+        if (isNaN(localDateTime.getTime())) {
+            showFormResult('Invalid date or time', 'danger');
+            return;
+        }
+
+        // Check if the datetime is in the future
+        if (localDateTime <= new Date()) {
+            showFormResult('Scheduled time must be in the future', 'warning');
+            return;
+        }
+
+        // Convert to ISO string (UTC)
+        const isoDatetime = localDateTime.toISOString();
 
         try {
             const data = await fetchApi('/api/reminders', {

@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from app.database import SessionLocal
 from app.crud import get_or_create_user, create_log, is_setting_active
-from app.services.auth.kakao_auth import kakao_auth_service
+from app.services.notification import notification_service
 
 
 class FinanceBot:
@@ -216,29 +216,34 @@ class FinanceBot:
             # 메시지 포맷팅
             message = self.format_us_market_message(market_data)
 
-            if not user.kakao_access_token:
-                create_log(db, "finance", "FAIL", "카카오 토큰이 없습니다")
-                print("⚠️  카카오 로그인이 필요합니다")
+            # 연동된 채널 확인
+            available_channels = notification_service.get_available_channels(user)
+            if not available_channels:
+                create_log(db, "finance", "FAIL", "연동된 알림 채널이 없습니다")
+                print("⚠️  알림 채널 연동이 필요합니다 (카카오톡 또는 텔레그램)")
                 return
 
-            # 카카오톡 메시지 발송
+            # 알림 발송 (연동된 모든 채널로 자동 발송)
             try:
-                await kakao_auth_service.send_message_to_me(
-                    user.kakao_access_token, message
-                )
+                result = await notification_service.send(user, message)
 
-                # 성공 로그
-                create_log(
-                    db,
-                    "finance",
-                    "SUCCESS",
-                    f"미국 증시 알림 발송 성공 (user_id: {user.user_id})",
-                )
-                print("✅ 미국 증시 알림 발송 완료")
+                if result.success:
+                    # 성공 로그
+                    create_log(
+                        db,
+                        "finance",
+                        "SUCCESS",
+                        f"미국 증시 알림 발송 성공 ({result.message})",
+                    )
+                    print("✅ 미국 증시 알림 발송 완료")
+                else:
+                    # 실패 로그
+                    create_log(db, "finance", "FAIL", f"알림 발송 실패: {result.message}")
+                    print(f"❌ 알림 발송 실패: {result.message}")
 
             except Exception as e:
-                create_log(db, "finance", "FAIL", f"메시지 발송 실패: {str(e)}")
-                print(f"❌ 메시지 발송 실패: {e}")
+                create_log(db, "finance", "FAIL", f"알림 발송 오류: {str(e)}")
+                print(f"❌ 알림 발송 오류: {e}")
 
         except Exception as e:
             create_log(db, "finance", "FAIL", f"미국 증시 알림 오류: {str(e)}")
@@ -273,29 +278,34 @@ class FinanceBot:
             # 메시지 포맷팅
             message = self.format_kr_market_message(market_data)
 
-            if not user.kakao_access_token:
-                create_log(db, "finance", "FAIL", "카카오 토큰이 없습니다")
-                print("⚠️  카카오 로그인이 필요합니다")
+            # 연동된 채널 확인
+            available_channels = notification_service.get_available_channels(user)
+            if not available_channels:
+                create_log(db, "finance", "FAIL", "연동된 알림 채널이 없습니다")
+                print("⚠️  알림 채널 연동이 필요합니다 (카카오톡 또는 텔레그램)")
                 return
 
-            # 카카오톡 메시지 발송
+            # 알림 발송 (연동된 모든 채널로 자동 발송)
             try:
-                await kakao_auth_service.send_message_to_me(
-                    user.kakao_access_token, message
-                )
+                result = await notification_service.send(user, message)
 
-                # 성공 로그
-                create_log(
-                    db,
-                    "finance",
-                    "SUCCESS",
-                    f"한국 증시 알림 발송 성공 (user_id: {user.user_id})",
-                )
-                print("✅ 한국 증시 알림 발송 완료")
+                if result.success:
+                    # 성공 로그
+                    create_log(
+                        db,
+                        "finance",
+                        "SUCCESS",
+                        f"한국 증시 알림 발송 성공 ({result.message})",
+                    )
+                    print("✅ 한국 증시 알림 발송 완료")
+                else:
+                    # 실패 로그
+                    create_log(db, "finance", "FAIL", f"알림 발송 실패: {result.message}")
+                    print(f"❌ 알림 발송 실패: {result.message}")
 
             except Exception as e:
-                create_log(db, "finance", "FAIL", f"메시지 발송 실패: {str(e)}")
-                print(f"❌ 메시지 발송 실패: {e}")
+                create_log(db, "finance", "FAIL", f"알림 발송 오류: {str(e)}")
+                print(f"❌ 알림 발송 오류: {e}")
 
         except Exception as e:
             create_log(db, "finance", "FAIL", f"한국 증시 알림 오류: {str(e)}")

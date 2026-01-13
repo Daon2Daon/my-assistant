@@ -22,13 +22,6 @@
 - Do not use emoticons or emojis when writing documentation.
 
 ## 참고사항
-- @docs/restructuringplan.md 파일을 참고해서 앱 변경 개발을 진행해주세요.
-- @docs/restructuringplan.md 파일에 단계별로 '[ ]' 항목이 있습니다. 이곳에 진행 완료된 항목은 체크해주세요.
+- @docs/telegramaddplan.md 파일을 참고해서 앱 변경 개발을 진행해주세요.
+- @docs/telegramaddplan.md 파일에 단계별로 '[ ]' 항목이 있습니다. 이곳에 진행 완료된 항목은 체크해주세요.
 - 다음 phase 개발을 진행하기 전에 진행여부를 물어봐주세요.
-
-## UI 구조 개편 현황 (2026-01-12 완료)
-- Phase R-1 ~ R-7 모두 완료
-- Dashboard 기반 단일 페이지 구조에서 기능별 독립 페이지 구조로 전환 완료
-- 7개 페이지: Home, Weather, Finance, Calendar, Reminders, Logs, Settings
-- 각 봇(날씨, 금융, 캘린더) 전용 관리 페이지 및 API 구현 완료
-- 자세한 내용은 @docs/restructuringplan.md 섹션 11 참조 

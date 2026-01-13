@@ -3,7 +3,7 @@ CRUD 유틸리티 함수
 데이터베이스 작업을 위한 공통 함수 모음
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy.orm import Session
 from app.models import User, Setting, Reminder, Log
@@ -66,6 +66,47 @@ def update_user_google_tokens(
         user.google_access_token = access_token
         user.google_refresh_token = refresh_token
         user.google_token_expiry = token_expiry
+        user.updated_at = datetime.now()
+        db.commit()
+        db.refresh(user)
+    return user
+
+
+def update_user_telegram_chat_id(db: Session, user_id: int, chat_id: str) -> User:
+    """
+    텔레그램 chat_id 업데이트
+
+    Args:
+        db: 데이터베이스 세션
+        user_id: 사용자 ID
+        chat_id: 텔레그램 chat_id
+
+    Returns:
+        User: 업데이트된 사용자 객체
+    """
+    user = get_user(db, user_id)
+    if user:
+        user.telegram_chat_id = chat_id
+        user.updated_at = datetime.now()
+        db.commit()
+        db.refresh(user)
+    return user
+
+
+def disconnect_user_telegram(db: Session, user_id: int) -> User:
+    """
+    텔레그램 연동 해제
+
+    Args:
+        db: 데이터베이스 세션
+        user_id: 사용자 ID
+
+    Returns:
+        User: 업데이트된 사용자 객체
+    """
+    user = get_user(db, user_id)
+    if user:
+        user.telegram_chat_id = None
         user.updated_at = datetime.now()
         db.commit()
         db.refresh(user)
@@ -174,14 +215,32 @@ def get_reminders(db: Session, user_id: int, is_sent: Optional[bool] = None) -> 
     query = db.query(Reminder).filter(Reminder.user_id == user_id)
     if is_sent is not None:
         query = query.filter(Reminder.is_sent == is_sent)
-    return query.order_by(Reminder.target_datetime).all()
+    reminders = query.order_by(Reminder.target_datetime).all()
+
+    # Ensure datetime has UTC timezone
+    for reminder in reminders:
+        if reminder.target_datetime and reminder.target_datetime.tzinfo is None:
+            reminder.target_datetime = reminder.target_datetime.replace(tzinfo=timezone.utc)
+        if reminder.created_at and reminder.created_at.tzinfo is None:
+            reminder.created_at = reminder.created_at.replace(tzinfo=timezone.utc)
+
+    return reminders
 
 
 def get_reminder(db: Session, reminder_id: int) -> Optional[Reminder]:
     """
     예약 메모 ID로 조회
     """
-    return db.query(Reminder).filter(Reminder.reminder_id == reminder_id).first()
+    reminder = db.query(Reminder).filter(Reminder.reminder_id == reminder_id).first()
+
+    # Ensure datetime has UTC timezone
+    if reminder:
+        if reminder.target_datetime and reminder.target_datetime.tzinfo is None:
+            reminder.target_datetime = reminder.target_datetime.replace(tzinfo=timezone.utc)
+        if reminder.created_at and reminder.created_at.tzinfo is None:
+            reminder.created_at = reminder.created_at.replace(tzinfo=timezone.utc)
+
+    return reminder
 
 
 def create_reminder(

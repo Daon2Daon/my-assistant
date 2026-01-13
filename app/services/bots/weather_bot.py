@@ -9,7 +9,7 @@ from datetime import datetime
 from app.config import settings
 from app.database import SessionLocal
 from app.crud import get_or_create_user, create_log, is_setting_active
-from app.services.auth.kakao_auth import kakao_auth_service
+from app.services.notification import notification_service
 
 
 class WeatherBot:
@@ -175,29 +175,34 @@ class WeatherBot:
             # 메시지 포맷팅
             message = self.format_weather_message(weather_data)
 
-            if not user.kakao_access_token:
-                create_log(db, "weather", "FAIL", "카카오 토큰이 없습니다")
-                print("⚠️  카카오 로그인이 필요합니다")
+            # 연동된 채널 확인
+            available_channels = notification_service.get_available_channels(user)
+            if not available_channels:
+                create_log(db, "weather", "FAIL", "연동된 알림 채널이 없습니다")
+                print("⚠️  알림 채널 연동이 필요합니다 (카카오톡 또는 텔레그램)")
                 return
 
-            # 카카오톡 메시지 발송
+            # 알림 발송 (연동된 모든 채널로 자동 발송)
             try:
-                await kakao_auth_service.send_message_to_me(
-                    user.kakao_access_token, message
-                )
+                result = await notification_service.send(user, message)
 
-                # 성공 로그
-                create_log(
-                    db,
-                    "weather",
-                    "SUCCESS",
-                    f"날씨 알림 발송 성공 - {city} (user_id: {user.user_id})",
-                )
-                print(f"✅ 날씨 알림 발송 완료 - {city}")
+                if result.success:
+                    # 성공 로그
+                    create_log(
+                        db,
+                        "weather",
+                        "SUCCESS",
+                        f"날씨 알림 발송 성공 - {city} ({result.message})",
+                    )
+                    print(f"✅ 날씨 알림 발송 완료 - {city}")
+                else:
+                    # 실패 로그
+                    create_log(db, "weather", "FAIL", f"알림 발송 실패: {result.message}")
+                    print(f"❌ 알림 발송 실패: {result.message}")
 
             except Exception as e:
-                create_log(db, "weather", "FAIL", f"메시지 발송 실패: {str(e)}")
-                print(f"❌ 메시지 발송 실패: {e}")
+                create_log(db, "weather", "FAIL", f"알림 발송 오류: {str(e)}")
+                print(f"❌ 알림 발송 오류: {e}")
 
         except Exception as e:
             create_log(db, "weather", "FAIL", f"날씨 알림 오류: {str(e)}")

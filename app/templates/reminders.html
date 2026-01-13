@@ -25,10 +25,18 @@
                             <textarea class="form-control" id="message_content" name="message_content"
                                       rows="3" placeholder="Enter your reminder message..." required></textarea>
                         </div>
-                        <div class="col-md-6 mb-3">
-                            <label for="target_datetime" class="form-label">Scheduled Time</label>
-                            <input type="datetime-local" class="form-control" id="target_datetime"
-                                   name="target_datetime" required>
+                        <div class="col-md-6">
+                            <label class="form-label">Scheduled Time</label>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="target_date" class="form-label text-muted small">Date</label>
+                                    <input type="date" class="form-control" id="target_date" name="target_date" required>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="target_time" class="form-label text-muted small">Time</label>
+                                    <input type="time" class="form-control" id="target_time" name="target_time" required>
+                                </div>
+                            </div>
                             <div class="form-text">Select the date and time for the reminder</div>
                         </div>
                     </div>

@@ -3,6 +3,7 @@
 카카오 로그인 및 "나에게 보내기" API 구현
 """
 
+import json
 import httpx
 from typing import Dict, Optional
 from app.config import settings
@@ -22,11 +23,13 @@ class KakaoAuthService:
         """
         카카오 로그인 인증 URL 생성
         사용자를 카카오 로그인 페이지로 리다이렉트하기 위한 URL
+        talk_message 스코프를 요청하여 카카오톡 메시지 발송 권한 획득
         """
         params = {
             "client_id": self.rest_api_key,
             "redirect_uri": self.redirect_uri,
             "response_type": "code",
+            "scope": "talk_message",  # 카카오톡 메시지 발송 권한
         }
         query_string = "&".join([f"{k}={v}" for k, v in params.items()])
         return f"{self.auth_url}?{query_string}"
@@ -124,7 +127,8 @@ class KakaoAuthService:
             "link": link or {"web_url": "https://developers.kakao.com"},
         }
 
-        data = {"template_object": str(template)}
+        # 카카오 API는 template_object를 JSON 문자열로 요구
+        data = {"template_object": json.dumps(template, ensure_ascii=False)}
 
         headers = {
             "Authorization": f"Bearer {access_token}",

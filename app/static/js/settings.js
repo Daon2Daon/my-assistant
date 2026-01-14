@@ -44,34 +44,36 @@ async function loadSettingsAuthStatus() {
 
         // Kakao
         const kakaoStatus = document.getElementById('settings-kakao-status');
-        const kakaoBtn = document.getElementById('settings-kakao-btn');
+        const kakaoConnectBtn = document.getElementById('settings-kakao-connect-btn');
+        const kakaoDisconnectBtn = document.getElementById('settings-kakao-disconnect-btn');
 
         if (data.kakao_connected) {
             kakaoStatus.className = 'badge bg-success';
             kakaoStatus.textContent = 'Connected';
-            kakaoBtn.textContent = 'Reconnect';
-            kakaoBtn.classList.remove('btn-warning');
-            kakaoBtn.classList.add('btn-outline-warning');
+            kakaoConnectBtn.style.display = 'none';
+            kakaoDisconnectBtn.style.display = 'inline-block';
         } else {
             kakaoStatus.className = 'badge bg-secondary';
             kakaoStatus.textContent = 'Not Connected';
-            kakaoBtn.innerHTML = '<i class="bi bi-box-arrow-in-right me-1"></i>Connect';
+            kakaoConnectBtn.style.display = 'inline-block';
+            kakaoDisconnectBtn.style.display = 'none';
         }
 
         // Google
         const googleStatus = document.getElementById('settings-google-status');
-        const googleBtn = document.getElementById('settings-google-btn');
+        const googleConnectBtn = document.getElementById('settings-google-connect-btn');
+        const googleDisconnectBtn = document.getElementById('settings-google-disconnect-btn');
 
         if (data.google_connected) {
             googleStatus.className = 'badge bg-success';
             googleStatus.textContent = 'Connected';
-            googleBtn.textContent = 'Reconnect';
-            googleBtn.classList.remove('btn-danger');
-            googleBtn.classList.add('btn-outline-danger');
+            googleConnectBtn.style.display = 'none';
+            googleDisconnectBtn.style.display = 'inline-block';
         } else {
             googleStatus.className = 'badge bg-secondary';
             googleStatus.textContent = 'Not Connected';
-            googleBtn.innerHTML = '<i class="bi bi-box-arrow-in-right me-1"></i>Connect';
+            googleConnectBtn.style.display = 'inline-block';
+            googleDisconnectBtn.style.display = 'none';
         }
     } catch (error) {
         console.error('Failed to load auth status:', error);
@@ -173,7 +175,7 @@ async function loadTelegramStatus() {
         const disconnectBtn = document.getElementById('settings-telegram-disconnect-btn');
         const testBtn = document.getElementById('settings-telegram-test-btn');
 
-        if (data.connected) {
+        if (data.telegram_connected) {
             statusBadge.className = 'badge bg-success';
             statusBadge.textContent = 'Connected';
             connectBtn.style.display = 'none';
@@ -302,5 +304,39 @@ async function testTelegram() {
         showSettingsResult(data.message || 'Test message sent', 'success');
     } catch (error) {
         showSettingsResult('Failed to send test message', 'danger');
+    }
+}
+
+// ========================================
+// Kakao & Google Disconnect Functions
+// ========================================
+
+// Disconnect Kakao
+async function disconnectKakao() {
+    if (!confirm('카카오톡 연동을 해제하시겠습니까?\n알림을 받을 수 없게 됩니다.')) {
+        return;
+    }
+
+    try {
+        await fetchApi('/auth/kakao/disconnect', { method: 'POST' });
+        showSettingsResult('카카오톡 연동이 해제되었습니다', 'success');
+        loadSettingsAuthStatus();
+    } catch (error) {
+        showSettingsResult('카카오톡 연동 해제에 실패했습니다', 'danger');
+    }
+}
+
+// Disconnect Google
+async function disconnectGoogle() {
+    if (!confirm('구글 캘린더 연동을 해제하시겠습니까?\n캘린더 알림을 받을 수 없게 됩니다.')) {
+        return;
+    }
+
+    try {
+        await fetchApi('/auth/google/disconnect', { method: 'POST' });
+        showSettingsResult('구글 캘린더 연동이 해제되었습니다', 'success');
+        loadSettingsAuthStatus();
+    } catch (error) {
+        showSettingsResult('구글 캘린더 연동 해제에 실패했습니다', 'danger');
     }
 }

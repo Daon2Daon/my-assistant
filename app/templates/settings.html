@@ -30,9 +30,12 @@
                                 <span id="settings-kakao-status" class="badge bg-secondary">Loading...</span>
                             </div>
                             <p class="text-muted small mt-2 mb-2">Required for sending notifications</p>
-                            <a href="/auth/kakao/login" id="settings-kakao-btn" class="btn btn-warning btn-sm">
+                            <a href="/auth/kakao/login" id="settings-kakao-connect-btn" class="btn btn-warning btn-sm me-2">
                                 <i class="bi bi-box-arrow-in-right me-1"></i>Connect
                             </a>
+                            <button id="settings-kakao-disconnect-btn" class="btn btn-outline-danger btn-sm" onclick="disconnectKakao()" style="display: none;">
+                                <i class="bi bi-x-circle me-1"></i>Disconnect
+                            </button>
                         </div>
                     </div>
 
@@ -47,9 +50,12 @@
                                 <span id="settings-google-status" class="badge bg-secondary">Loading...</span>
                             </div>
                             <p class="text-muted small mt-2 mb-2">Required for calendar briefing</p>
-                            <a href="/auth/google/login" id="settings-google-btn" class="btn btn-danger btn-sm">
+                            <a href="/auth/google/login" id="settings-google-connect-btn" class="btn btn-danger btn-sm me-2">
                                 <i class="bi bi-box-arrow-in-right me-1"></i>Connect
                             </a>
+                            <button id="settings-google-disconnect-btn" class="btn btn-outline-danger btn-sm" onclick="disconnectGoogle()" style="display: none;">
+                                <i class="bi bi-x-circle me-1"></i>Disconnect
+                            </button>
                         </div>
                     </div>
 
@@ -151,5 +157,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="/static/js/settings.js"></script>
+<script src="/static/js/settings.js?v=3"></script>
 {% endblock %}

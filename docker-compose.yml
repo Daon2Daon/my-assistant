@@ -15,6 +15,7 @@ services:
       # App
       - DEBUG=${DEBUG:-False}
       - SECRET_KEY=${SECRET_KEY}
+      - TZ=Asia/Seoul
       # Database
       - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/assistant.db}
       # Kakao API
@@ -26,6 +27,8 @@ services:
       - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI}
       # OpenWeatherMap
       - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
+      # Telegram Bot
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
     healthcheck:

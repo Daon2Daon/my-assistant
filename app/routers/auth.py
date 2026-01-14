@@ -120,6 +120,45 @@ async def kakao_status(db: Session = Depends(get_db)):
     )
 
 
+@router.post("/kakao/disconnect")
+async def kakao_disconnect(db: Session = Depends(get_db)):
+    """
+    카카오 연동 해제
+    DB에서 카카오 토큰 제거
+    """
+    try:
+        user = get_or_create_user(db)
+
+        if not user.kakao_access_token:
+            raise HTTPException(status_code=400, detail="연동된 카카오톡이 없습니다")
+
+        # DB에서 카카오 토큰 제거
+        user.kakao_access_token = None
+        user.kakao_refresh_token = None
+        db.commit()
+
+        # 로그 기록
+        create_log(
+            db,
+            "auth",
+            "SUCCESS",
+            f"카카오톡 연동 해제 (user_id: {user.user_id})",
+        )
+
+        return JSONResponse(
+            content={
+                "message": "카카오톡 연동 해제 성공",
+                "user_id": user.user_id,
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        create_log(db, "auth", "FAIL", f"카카오톡 연동 해제 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"연동 해제 실패: {str(e)}")
+
+
 @router.post("/kakao/refresh")
 async def kakao_refresh_token(db: Session = Depends(get_db)):
     """
@@ -285,6 +324,46 @@ async def google_status(db: Session = Depends(get_db)):
     )
 
 
+@router.post("/google/disconnect")
+async def google_disconnect(db: Session = Depends(get_db)):
+    """
+    구글 캘린더 연동 해제
+    DB에서 구글 토큰 제거
+    """
+    try:
+        user = get_or_create_user(db)
+
+        if not user.google_access_token:
+            raise HTTPException(status_code=400, detail="연동된 구글 캘린더가 없습니다")
+
+        # DB에서 구글 토큰 제거
+        user.google_access_token = None
+        user.google_refresh_token = None
+        user.google_token_expiry = None
+        db.commit()
+
+        # 로그 기록
+        create_log(
+            db,
+            "auth",
+            "SUCCESS",
+            f"구글 캘린더 연동 해제 (user_id: {user.user_id})",
+        )
+
+        return JSONResponse(
+            content={
+                "message": "구글 캘린더 연동 해제 성공",
+                "user_id": user.user_id,
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        create_log(db, "auth", "FAIL", f"구글 캘린더 연동 해제 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"연동 해제 실패: {str(e)}")
+
+
 @router.post("/google/test-calendar")
 async def google_test_calendar(db: Session = Depends(get_db)):
     """
@@ -377,6 +456,7 @@ async def telegram_start():
     try:
         # 봇 토큰에서 봇 username 추출 (간단히 구현)
         bot_token = settings.TELEGRAM_BOT_TOKEN
+        print(f"🔍 TELEGRAM_BOT_TOKEN 확인: {bot_token[:20]}..." if bot_token and len(bot_token) > 20 else f"🔍 TELEGRAM_BOT_TOKEN: {bot_token}")
 
         if not bot_token or bot_token == "your_telegram_bot_token":
             raise HTTPException(
@@ -387,7 +467,9 @@ async def telegram_start():
         # 봇 정보 조회
         from app.services.notification import telegram_sender
 
+        print("📞 텔레그램 봇 정보 조회 시작...")
         bot_info = await telegram_sender.get_bot_info()
+        print(f"📞 텔레그램 봇 정보 조회 결과: {bot_info}")
 
         if not bot_info or not bot_info.get("ok"):
             raise HTTPException(status_code=500, detail="텔레그램 봇 정보 조회 실패")
@@ -417,6 +499,9 @@ async def telegram_start():
     except HTTPException:
         raise
     except Exception as e:
+        print(f"❌ 텔레그램 연동 시작 에러: {type(e).__name__} - {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"봇 정보 조회 실패: {str(e)}")
 
 

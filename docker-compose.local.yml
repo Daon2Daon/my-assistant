@@ -19,6 +19,7 @@ services:
       # App
       - DEBUG=${DEBUG:-True}
       - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
+      - TZ=Asia/Seoul
       # Database
       - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/assistant.db}
       # Kakao API
@@ -30,6 +31,8 @@ services:
       - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-http://localhost:8000/auth/google/callback}
       # OpenWeatherMap
       - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
+      # Telegram Bot
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s

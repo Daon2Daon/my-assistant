@@ -77,12 +77,29 @@ async function loadFinanceSettings() {
     try {
         const data = await fetchApi('/api/settings/finance');
 
-        // 알림 시간 설정 (US와 KR은 현재 같은 시간 사용, 향후 분리 가능)
+        // config_json에서 시간 설정 불러오기
+        let usTime = '22:00';
+        let krTime = '09:00';
+
+        if (data.config_json) {
+            try {
+                const config = JSON.parse(data.config_json);
+                usTime = config.us_notification_time || data.notification_time || '22:00';
+                krTime = config.kr_notification_time || '09:00';
+            } catch (e) {
+                console.warn('설정 파싱 실패, 기본값 사용:', e);
+                usTime = data.notification_time || '22:00';
+            }
+        } else {
+            usTime = data.notification_time || '22:00';
+        }
+
+        // 알림 시간 설정
         const timeInput = document.getElementById('us-notification-time');
-        timeInput.value = data.notification_time || '22:00';
+        timeInput.value = usTime;
 
         const krTimeInput = document.getElementById('kr-notification-time');
-        krTimeInput.value = data.notification_time || '09:00';
+        krTimeInput.value = krTime;
 
     } catch (error) {
         console.error('Failed to load finance settings:', error);
@@ -117,17 +134,30 @@ async function toggleFinanceActive(isActive) {
 // 설정 저장
 async function saveSettings() {
     try {
-        const notificationTime = document.getElementById('us-notification-time').value;
+        const usNotificationTime = document.getElementById('us-notification-time').value;
+        const krNotificationTime = document.getElementById('kr-notification-time').value;
 
-        if (!notificationTime) {
-            showToast('알림 시간을 선택해주세요', 'warning');
+        if (!usNotificationTime) {
+            showToast('US Market 알림 시간을 선택해주세요', 'warning');
             return;
         }
+
+        if (!krNotificationTime) {
+            showToast('KR Market 알림 시간을 선택해주세요', 'warning');
+            return;
+        }
+
+        // US와 KR 시간을 config_json에 저장
+        const config = {
+            us_notification_time: usNotificationTime,
+            kr_notification_time: krNotificationTime
+        };
 
         await fetchApi('/api/settings/finance', {
             method: 'PUT',
             body: JSON.stringify({
-                notification_time: notificationTime
+                notification_time: usNotificationTime, // 기본값으로 US 시간 사용
+                config_json: JSON.stringify(config)
             })
         });
 
@@ -721,7 +751,7 @@ async function loadWatchlistSelectOptions() {
 
     } catch (error) {
         console.error('관심 종목 목록 로드 실패:', error);
-        showMessage('관심 종목 목록을 불러오는데 실패했습니다', 'danger');
+        showToast('관심 종목 목록을 불러오는데 실패했습니다', 'error');
     }
 }
 
@@ -752,17 +782,17 @@ async function createPriceAlert() {
 
     // 유효성 검사
     if (!watchlistId) {
-        showMessage('종목을 선택해주세요', 'warning');
+        showToast('종목을 선택해주세요', 'warning');
         return;
     }
 
     if (!alertValue || isNaN(alertValue)) {
-        showMessage('목표 값을 입력해주세요', 'warning');
+        showToast('목표 값을 입력해주세요', 'warning');
         return;
     }
 
     if ((alertType === 'TARGET_HIGH' || alertType === 'TARGET_LOW') && alertValue <= 0) {
-        showMessage('목표가는 0보다 커야 합니다', 'warning');
+        showToast('목표가는 0보다 커야 합니다', 'warning');
         return;
     }
 
@@ -785,17 +815,17 @@ async function createPriceAlert() {
             body: JSON.stringify(payload)
         });
 
-        showMessage('가격 알림이 등록되었습니다', 'success');
+        // 알림 목록 새로고침 (먼저 실행)
+        await loadPriceAlerts();
 
         // 입력 필드 초기화
         document.getElementById('alert-watchlist-select').value = '';
         document.getElementById('alert-value-input').value = '';
 
-        // 알림 목록 새로고침
-        loadPriceAlerts();
+        showToast('가격 알림이 등록되었습니다', 'success');
 
     } catch (error) {
-        showMessage(`가격 알림 등록 실패: ${error.message}`, 'danger');
+        showToast(`가격 알림 등록 실패: ${error.message}`, 'error');
     }
 }
 
@@ -812,12 +842,12 @@ async function deletePriceAlert(alertId) {
             method: 'DELETE'
         });
 
-        showMessage('가격 알림이 삭제되었습니다', 'success');
+        // 알림 목록 새로고침 (먼저 실행)
+        await loadPriceAlerts();
 
-        // 알림 목록 새로고침
-        loadPriceAlerts();
+        showToast('가격 알림이 삭제되었습니다', 'success');
 
     } catch (error) {
-        showMessage(`가격 알림 삭제 실패: ${error.message}`, 'danger');
+        showToast(`가격 알림 삭제 실패: ${error.message}`, 'error');
     }
 }

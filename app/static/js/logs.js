@@ -101,7 +101,7 @@ async function loadLogs(page = 1) {
                     <td>${categoryBadge}</td>
                     <td>${statusBadge}</td>
                     <td>${truncateText(log.message, 100)}</td>
-                    <td><small>${formatDateTime(log.created_at)}</small></td>
+                    <td><small>${formatDateTime(log.created_at_kst || log.created_at)}</small></td>
                     <td>
                         <button class="btn btn-sm btn-outline-secondary" onclick='showLogDetail(${JSON.stringify(log)})'>
                             <i class="bi bi-eye"></i>
@@ -230,7 +230,7 @@ function showLogDetail(log) {
 
     document.getElementById('modal-category').innerHTML = categoryBadge;
     document.getElementById('modal-status').innerHTML = statusBadge;
-    document.getElementById('modal-time').textContent = formatDateTime(log.created_at);
+    document.getElementById('modal-time').textContent = formatDateTime(log.created_at_kst || log.created_at);
     document.getElementById('modal-message').textContent = log.message;
 
     // 모달 표시

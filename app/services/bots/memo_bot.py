@@ -41,11 +41,11 @@ class MemoBot:
         if target_datetime:
             # target_datetime이 있으면 사용 (예약된 정확한 시간)
             if target_datetime.tzinfo is None:
-                # timezone 정보가 없으면 UTC로 간주
-                dt_utc = target_datetime.replace(tzinfo=timezone.utc)
+                # timezone 정보가 없으면 UTC로 간주하고 KST로 변환 (DB에 UTC로 저장되어 있음)
+                dt_kst = target_datetime.replace(tzinfo=timezone.utc).astimezone(kst)
             else:
-                dt_utc = target_datetime
-            dt_kst = dt_utc.astimezone(kst)
+                # timezone 정보가 있으면 KST로 변환
+                dt_kst = target_datetime.astimezone(kst)
         else:
             # 없으면 현재 시간 사용
             dt_kst = datetime.now(timezone.utc).astimezone(kst)
@@ -130,18 +130,26 @@ class MemoBot:
 
         Args:
             reminder_id: 메모 ID
-            target_datetime: 발송 예정 시간
+            target_datetime: 발송 예정 시간 (KST)
         """
         job_id = f"reminder_{reminder_id}"
+
+        # target_datetime이 timezone 정보가 있는지 확인
+        if target_datetime.tzinfo is None:
+            # timezone 정보가 없으면 UTC로 간주하고 KST로 변환 (DB에 UTC로 저장되어 있음)
+            kst_dt = target_datetime.replace(tzinfo=timezone.utc).astimezone(ZoneInfo("Asia/Seoul"))
+        else:
+            # timezone 정보가 있으면 이미 KST이므로 그대로 사용
+            kst_dt = target_datetime
 
         scheduler_service.add_date_job(
             func=send_memo_notification_sync,
             job_id=job_id,
-            run_date=target_datetime,
+            run_date=kst_dt,
             args=(reminder_id,),
         )
 
-        print(f"메모 Job 등록 완료: {job_id} - {target_datetime}")
+        print(f"메모 Job 등록 완료: {job_id} - {kst_dt} (KST)")
 
     def cancel_reminder(self, reminder_id: int) -> bool:
         """
@@ -174,12 +182,15 @@ class MemoBot:
 
             for reminder in pending_reminders:
                 # 이미 지난 시간의 메모는 건너뜀
-                now_utc = datetime.now(timezone.utc)
+                now_kst = datetime.now(ZoneInfo("Asia/Seoul"))
                 target_dt = reminder.target_datetime
-                if target_dt.tzinfo is None:
-                    target_dt = target_dt.replace(tzinfo=timezone.utc)
 
-                if target_dt <= now_utc:
+                # target_datetime이 timezone 정보가 있는지 확인
+                if target_dt.tzinfo is None:
+                    # timezone 정보가 없으면 UTC로 간주하고 KST로 변환 (DB에 UTC로 저장되어 있음)
+                    target_dt = target_dt.replace(tzinfo=timezone.utc).astimezone(ZoneInfo("Asia/Seoul"))
+
+                if target_dt <= now_kst:
                     skipped_count += 1
                     continue
 

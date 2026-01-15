@@ -4,6 +4,7 @@ Reminders API 라우터
 """
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse
@@ -59,13 +60,16 @@ async def list_reminders(
         user = get_or_create_user(db)
         reminders = get_reminders(db, user.user_id, is_sent=is_sent)
 
+        # DB의 naive datetime을 UTC로 간주하고 KST로 변환하여 응답
+        kst = ZoneInfo("Asia/Seoul")
+
         return [
             ReminderResponse(
                 reminder_id=r.reminder_id,
                 message_content=r.message_content,
-                target_datetime=r.target_datetime,
+                target_datetime=r.target_datetime.replace(tzinfo=timezone.utc).astimezone(kst) if r.target_datetime and not r.target_datetime.tzinfo else r.target_datetime.astimezone(kst),
                 is_sent=r.is_sent,
-                created_at=r.created_at,
+                created_at=r.created_at.replace(tzinfo=timezone.utc).astimezone(kst) if r.created_at and not r.created_at.tzinfo else r.created_at.astimezone(kst),
             )
             for r in reminders
         ]
@@ -88,12 +92,15 @@ async def get_reminder_detail(reminder_id: int, db: Session = Depends(get_db)):
         if not reminder:
             raise HTTPException(status_code=404, detail="메모를 찾을 수 없습니다")
 
+        # DB의 naive datetime을 UTC로 간주하고 KST로 변환
+        kst = ZoneInfo("Asia/Seoul")
+
         return ReminderResponse(
             reminder_id=reminder.reminder_id,
             message_content=reminder.message_content,
-            target_datetime=reminder.target_datetime,
+            target_datetime=reminder.target_datetime.replace(tzinfo=timezone.utc).astimezone(kst) if reminder.target_datetime and not reminder.target_datetime.tzinfo else reminder.target_datetime.astimezone(kst),
             is_sent=reminder.is_sent,
-            created_at=reminder.created_at,
+            created_at=reminder.created_at.replace(tzinfo=timezone.utc).astimezone(kst) if reminder.created_at and not reminder.created_at.tzinfo else reminder.created_at.astimezone(kst),
         )
 
     except HTTPException:
@@ -115,40 +122,54 @@ async def create_new_reminder(
         request: 메모 생성 요청 (message_content, target_datetime)
     """
     try:
+        # 받은 시간을 KST 시간대로 처리
+        kst = ZoneInfo("Asia/Seoul")
+        
+        if request.target_datetime.tzinfo is None:
+            # timezone 정보가 없으면 KST로 간주
+            target_datetime_kst = request.target_datetime.replace(tzinfo=kst)
+        else:
+            # timezone 정보가 있으면 KST로 변환
+            target_datetime_kst = request.target_datetime.astimezone(kst)
+
         # 과거 시간 체크 (한국 시간대 기준)
-        kst_now = datetime.now(ZoneInfo("Asia/Seoul"))
-        if request.target_datetime <= kst_now:
+        kst_now = datetime.now(kst)
+        if target_datetime_kst <= kst_now:
             raise HTTPException(
                 status_code=400, detail="발송 시간은 현재 시간 이후여야 합니다"
             )
 
         user = get_or_create_user(db)
 
-        # 메모 생성
+        # UTC로 변환하여 naive datetime으로 DB에 저장
+        target_datetime_utc = target_datetime_kst.astimezone(timezone.utc)
+        target_datetime_naive = target_datetime_utc.replace(tzinfo=None)
+        
         reminder = create_reminder(
             db,
             user_id=user.user_id,
             message_content=request.message_content,
-            target_datetime=request.target_datetime,
+            target_datetime=target_datetime_naive,
         )
 
-        # 스케줄러에 Job 등록
-        memo_bot.schedule_reminder(reminder.reminder_id, reminder.target_datetime)
+        # 스케줄러에 Job 등록 (KST 시간 사용)
+        memo_bot.schedule_reminder(reminder.reminder_id, target_datetime_kst)
 
         # 로그 기록
         create_log(
             db,
             "memo",
             "CREATE",
-            f"메모 등록 완료 (reminder_id: {reminder.reminder_id}, 발송예정: {reminder.target_datetime})",
+            f"메모 등록 완료 (reminder_id: {reminder.reminder_id}, 발송예정: {target_datetime_kst})",
         )
 
+        # DB의 naive datetime을 UTC로 간주하고 KST로 변환하여 응답
         return ReminderResponse(
             reminder_id=reminder.reminder_id,
             message_content=reminder.message_content,
-            target_datetime=reminder.target_datetime,
+            target_datetime=target_datetime_kst,
             is_sent=reminder.is_sent,
-            created_at=reminder.created_at,
+            created_at=reminder.created_at.replace(tzinfo=timezone.utc).astimezone(kst) if reminder.created_at and not reminder.created_at.tzinfo else reminder.created_at.astimezone(kst),
         )
 
     except HTTPException:

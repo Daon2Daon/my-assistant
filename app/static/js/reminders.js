@@ -16,10 +16,8 @@ function setMinDateTime() {
     const minDate = now.toISOString().split('T')[0];
     document.getElementById('target_date').min = minDate;
 
-    // Set default values to tomorrow 09:00
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    document.getElementById('target_date').value = tomorrow.toISOString().split('T')[0];
+    // Set default values to today 09:00
+    document.getElementById('target_date').value = now.toISOString().split('T')[0];
     document.getElementById('target_time').value = '09:00';
 }
 
@@ -39,24 +37,27 @@ function setupForm() {
             return;
         }
 
-        // Combine date and time and convert to ISO format with timezone
-        // Create a date object in local timezone
-        const localDateTime = new Date(`${targetDate}T${targetTime}`);
+        // Parse date and time components
+        const [year, month, day] = targetDate.split('-').map(Number);
+        const [hour, minute] = targetTime.split(':').map(Number);
+
+        // Create KST datetime
+        const kstDateTime = new Date(year, month - 1, day, hour, minute, 0);
 
         // Validate datetime
-        if (isNaN(localDateTime.getTime())) {
+        if (isNaN(kstDateTime.getTime())) {
             showFormResult('Invalid date or time', 'danger');
             return;
         }
 
-        // Check if the datetime is in the future
-        if (localDateTime <= new Date()) {
+        // Check if the KST time is in the future
+        if (kstDateTime <= new Date()) {
             showFormResult('Scheduled time must be in the future', 'warning');
             return;
         }
 
-        // Convert to ISO string (UTC)
-        const isoDatetime = localDateTime.toISOString();
+        // Format as ISO string with KST timezone offset (+09:00)
+        const isoDatetime = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+09:00`;
 
         try {
             const data = await fetchApi('/api/reminders', {

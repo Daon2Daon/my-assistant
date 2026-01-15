@@ -17,6 +17,7 @@ from app.crud import (
     create_setting,
     update_setting,
 )
+from app.services.scheduler import scheduler_service
 
 
 router = APIRouter(prefix="/api/settings", tags=["Settings"])
@@ -152,6 +153,13 @@ async def update_setting_by_category(
             config_json=request.config_json,
             is_active=request.is_active,
         )
+
+        # Finance 설정 변경 시 스케줄러 Job 업데이트
+        if category == "finance":
+            try:
+                scheduler_service.update_finance_jobs()
+            except Exception as e:
+                print(f"⚠️  Finance Job 업데이트 실패: {e}")
 
         return JSONResponse(
             content={

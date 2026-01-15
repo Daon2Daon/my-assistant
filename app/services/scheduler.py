@@ -247,5 +247,85 @@ class SchedulerService:
             return False
 
 
+    def setup_finance_jobs(self):
+        """
+        Finance 알림 Job 설정
+        설정된 시간에 미국/한국 증시 알림 발송 Job 등록
+        """
+        from app.database import SessionLocal
+        from app.crud import get_setting_by_category, get_or_create_user
+        from app.services.bots.finance_bot import send_us_market_notification_sync, send_kr_market_notification_sync
+
+        db = SessionLocal()
+        try:
+            user = get_or_create_user(db)
+            setting = get_setting_by_category(db, user.user_id, "finance")
+
+            if not setting or not setting.is_active:
+                print("⏸️  Finance 알림이 비활성화되어 있습니다")
+                return
+
+            # 설정에서 시간 파싱
+            us_time = "22:00"  # 기본값
+            kr_time = "09:00"  # 기본값
+
+            if setting.config_json:
+                try:
+                    import json
+                    config = json.loads(setting.config_json)
+                    us_time = config.get("us_notification_time", setting.notification_time)
+                    kr_time = config.get("kr_notification_time", "09:00")
+                except Exception as e:
+                    print(f"⚠️  Finance 설정 파싱 실패: {e}")
+                    us_time = setting.notification_time
+
+            # US Market Job 등록
+            try:
+                hour, minute = map(int, us_time.split(":"))
+                self.add_cron_job(
+                    func=send_us_market_notification_sync,
+                    job_id="finance_us_daily",
+                    hour=hour,
+                    minute=minute,
+                )
+                print(f"✅ US Market 알림 Job 등록: 매일 {us_time}")
+            except Exception as e:
+                print(f"❌ US Market Job 등록 실패: {e}")
+
+            # KR Market Job 등록
+            try:
+                hour, minute = map(int, kr_time.split(":"))
+                self.add_cron_job(
+                    func=send_kr_market_notification_sync,
+                    job_id="finance_kr_daily",
+                    hour=hour,
+                    minute=minute,
+                )
+                print(f"✅ KR Market 알림 Job 등록: 매일 {kr_time}")
+            except Exception as e:
+                print(f"❌ KR Market Job 등록 실패: {e}")
+
+        except Exception as e:
+            print(f"❌ Finance Job 설정 실패: {e}")
+        finally:
+            db.close()
+
+    def update_finance_jobs(self):
+        """
+        Finance 설정 변경 시 Job 업데이트
+        기존 Job을 제거하고 새로 등록
+        """
+        try:
+            # 기존 Finance Job 제거
+            self.remove_job("finance_us_daily")
+            self.remove_job("finance_kr_daily")
+
+            # 새로 등록
+            self.setup_finance_jobs()
+
+        except Exception as e:
+            print(f"❌ Finance Job 업데이트 실패: {e}")
+
+
 # 싱글톤 인스턴스
 scheduler_service = SchedulerService()

@@ -845,7 +845,7 @@ class FinanceBot:
             user = get_or_create_user(db)
 
             # 활성화된 가격 알림 조회
-            alerts = get_price_alerts(db, user.user_id, active_only=True)
+            alerts = get_price_alerts(db, user.user_id, is_active=True)
             if not alerts:
                 print("ℹ️  등록된 가격 알림이 없습니다")
                 return

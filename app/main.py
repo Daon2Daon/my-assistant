@@ -74,6 +74,12 @@ async def startup_event():
     except Exception as e:
         print(f"⚠️  가격 알림 체크 Job 등록 실패: {e}")
 
+    # Finance 알림 Job 등록
+    try:
+        scheduler_service.setup_finance_jobs()
+    except Exception as e:
+        print(f"⚠️  Finance Job 등록 실패: {e}")
+
     # 미발송 메모 Job 복원
     restored_count = memo_bot.restore_pending_reminders()
     if restored_count > 0:

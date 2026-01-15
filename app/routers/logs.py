@@ -81,6 +81,7 @@ async def list_logs(
                         "status": log.status,
                         "message": log.message,
                         "created_at": log.created_at.isoformat() if log.created_at else None,
+                        "created_at_kst": log.created_at.astimezone(ZoneInfo("Asia/Seoul")).isoformat() if log.created_at and log.created_at.tzinfo else None,
                     }
                     for log in logs
                 ]

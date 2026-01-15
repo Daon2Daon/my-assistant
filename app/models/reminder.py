@@ -24,14 +24,15 @@ class Reminder(Base):
     # 메모 내용
     message_content = Column(String, nullable=False)
 
-    # 발송 예정 시간
-    target_datetime = Column(DateTime, nullable=False, index=True)
+    # 발송 예정 시간 (한국 시간대, naive datetime으로 저장)
+    target_datetime = Column(DateTime(timezone=False), nullable=False, index=True,
+                            default=lambda: datetime.now(ZoneInfo("Asia/Seoul")))
 
     # 발송 완료 여부 (0: 대기, 1: 발송완료)
     is_sent = Column(Boolean, default=False)
 
     # 메타데이터
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(ZoneInfo("Asia/Seoul")))
+    created_at = Column(DateTime(timezone=False), default=lambda: datetime.now(ZoneInfo("Asia/Seoul")))
 
     def __repr__(self):
         return f"<Reminder(id={self.reminder_id}, sent={self.is_sent}, target={self.target_datetime})>"

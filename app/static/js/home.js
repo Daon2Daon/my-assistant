@@ -2,7 +2,6 @@
 
 document.addEventListener('DOMContentLoaded', function() {
     loadSchedulerStatus();
-    loadAuthStatus();
     loadModuleSummary();
     loadRecentLogs();
 });
@@ -22,43 +21,6 @@ async function loadSchedulerStatus() {
         }
     } catch (error) {
         document.getElementById('scheduler-status').textContent = 'Error';
-    }
-}
-
-// Load auth status
-async function loadAuthStatus() {
-    try {
-        const data = await fetchApi('/api/dashboard/auth-status');
-
-        // Kakao
-        const kakaoStatus = document.getElementById('kakao-status');
-        const kakaoBtn = document.getElementById('kakao-login-btn');
-
-        if (data.kakao_connected) {
-            kakaoStatus.className = 'badge bg-success';
-            kakaoStatus.textContent = 'Connected';
-            kakaoBtn.classList.add('d-none');
-        } else {
-            kakaoStatus.className = 'badge bg-secondary';
-            kakaoStatus.textContent = 'Not Connected';
-            kakaoBtn.classList.remove('d-none');
-        }
-
-        // Google
-        const googleStatus = document.getElementById('google-status');
-        const googleBtn = document.getElementById('google-login-btn');
-
-        if (data.google_connected) {
-            googleStatus.className = 'badge bg-success';
-            googleStatus.textContent = 'Connected';
-            googleBtn.classList.add('d-none');
-        } else {
-            googleStatus.className = 'badge bg-secondary';
-            googleStatus.textContent = 'Not Connected';
-            googleBtn.classList.remove('d-none');
-        }
-    } catch (error) {
-        console.error('Failed to load auth status:', error);
     }
 }
 

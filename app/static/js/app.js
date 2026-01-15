@@ -1,4 +1,4 @@
-// My-Kakao-Assistant Common JavaScript
+// My Assistant Common JavaScript
 
 // API Base URL
 const API_BASE = '';

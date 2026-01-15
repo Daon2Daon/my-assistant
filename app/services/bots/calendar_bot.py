@@ -4,6 +4,7 @@ Google Calendar API를 사용한 일정 조회 및 알림
 """
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Dict, List, Optional
 from app.database import SessionLocal
 from app.crud import get_or_create_user, create_log, is_setting_active
@@ -45,7 +46,7 @@ class CalendarBot:
             str: 포맷팅된 메시지
         """
         try:
-            today = datetime.now()
+            today = datetime.now(ZoneInfo("Asia/Seoul"))
             weekday_names = ["월", "화", "수", "목", "금", "토", "일"]
             weekday = weekday_names[today.weekday()]
 
@@ -126,12 +127,6 @@ class CalendarBot:
             if not user.google_access_token or not user.google_refresh_token:
                 create_log(db, "calendar", "FAIL", "구글 토큰이 없습니다")
                 print("구글 로그인이 필요합니다")
-                return
-
-            # 카카오 토큰 확인
-            if not user.kakao_access_token:
-                create_log(db, "calendar", "FAIL", "카카오 토큰이 없습니다")
-                print("카카오 로그인이 필요합니다")
                 return
 
             # 구글 Credentials 생성

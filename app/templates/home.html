@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Home - My-Kakao-Assistant{% endblock %}
+{% block title %}Home - My Assistant{% endblock %}
 
 {% block content %}
 <div class="row mb-4">
@@ -17,8 +17,8 @@
     </div>
 
     <!-- Scheduler Status -->
-    <div class="col-md-4 mb-3">
-        <div class="card h-100">
+    <div class="col-md-12 mb-3">
+        <div class="card">
             <div class="card-body">
                 <div class="d-flex align-items-center">
                     <div class="flex-shrink-0">
@@ -28,46 +28,6 @@
                         <h5 class="card-title mb-1">Scheduler</h5>
                         <span id="scheduler-status" class="badge bg-secondary">Loading...</span>
                     </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Kakao Auth Status -->
-    <div class="col-md-4 mb-3">
-        <div class="card h-100">
-            <div class="card-body">
-                <div class="d-flex align-items-center">
-                    <div class="flex-shrink-0">
-                        <i class="bi bi-chat-dots fs-1 text-warning"></i>
-                    </div>
-                    <div class="flex-grow-1 ms-3">
-                        <h5 class="card-title mb-1">Kakao</h5>
-                        <span id="kakao-status" class="badge bg-secondary">Loading...</span>
-                    </div>
-                </div>
-                <div class="mt-2">
-                    <a href="/auth/kakao/login" id="kakao-login-btn" class="btn btn-sm btn-outline-warning d-none">Login</a>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Google Auth Status -->
-    <div class="col-md-4 mb-3">
-        <div class="card h-100">
-            <div class="card-body">
-                <div class="d-flex align-items-center">
-                    <div class="flex-shrink-0">
-                        <i class="bi bi-google fs-1 text-danger"></i>
-                    </div>
-                    <div class="flex-grow-1 ms-3">
-                        <h5 class="card-title mb-1">Google</h5>
-                        <span id="google-status" class="badge bg-secondary">Loading...</span>
-                    </div>
-                </div>
-                <div class="mt-2">
-                    <a href="/auth/google/login" id="google-login-btn" class="btn btn-sm btn-outline-danger d-none">Login</a>
                 </div>
             </div>
         </div>

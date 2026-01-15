@@ -79,7 +79,7 @@ def main():
     메인 함수
     """
     print("=" * 60)
-    print("🚀 My-Kakao-Assistant 데이터베이스 초기화")
+    print("🚀 My Assistant 데이터베이스 초기화")
     print("=" * 60)
 
     try:

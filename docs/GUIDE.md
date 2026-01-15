@@ -1,4 +1,4 @@
-# My-Kakao-Assistant 개발 가이드
+# My Assistant 개발 가이드
 
 ## 1. 개발 규칙 (Development Rules)
 

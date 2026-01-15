@@ -1,5 +1,5 @@
 """
-My-Kakao-Assistant 메인 애플리케이션
+My Assistant 메인 애플리케이션
 FastAPI 기반 개인용 카카오톡 비서 앱
 """
 
@@ -11,10 +11,11 @@ from app.database import init_db
 from app.routers import auth, scheduler, reminders, pages, settings as settings_router, logs, weather, finance, calendar
 from app.services.scheduler import scheduler_service
 from app.services.bots.memo_bot import memo_bot
+from app.services.bots.finance_bot import check_price_alerts_sync
 
 # FastAPI 앱 생성
 app = FastAPI(
-    title="My-Kakao-Assistant",
+    title="My Assistant",
     description="개인용 카카오톡 비서 앱 - 날씨, 금융, 일정 알림 서비스",
     version="0.1.0",
     debug=settings.DEBUG,
@@ -53,7 +54,7 @@ async def startup_event():
     애플리케이션 시작 시 실행되는 이벤트
     데이터베이스 초기화 및 스케줄러 시작
     """
-    print("🚀 My-Kakao-Assistant 시작")
+    print("🚀 My Assistant 시작")
     print(f"🔧 DEBUG 모드: {settings.DEBUG}")
 
     # 데이터베이스 초기화
@@ -61,6 +62,17 @@ async def startup_event():
 
     # 스케줄러 시작
     scheduler_service.start()
+
+    # 가격 알림 체크 Job 등록 (5분마다)
+    try:
+        scheduler_service.add_interval_job(
+            func=check_price_alerts_sync,
+            job_id="price_alerts_check",
+            minutes=5,
+        )
+        print("✅ 가격 알림 체크 Job 등록 완료 (5분 간격)")
+    except Exception as e:
+        print(f"⚠️  가격 알림 체크 Job 등록 실패: {e}")
 
     # 미발송 메모 Job 복원
     restored_count = memo_bot.restore_pending_reminders()
@@ -84,7 +96,7 @@ async def shutdown_event():
     애플리케이션 종료 시 실행되는 이벤트
     스케줄러 종료 및 리소스 정리
     """
-    print("👋 My-Kakao-Assistant 종료")
+    print("👋 My Assistant 종료")
 
     # 스케줄러 종료
     scheduler_service.shutdown()

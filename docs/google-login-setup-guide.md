@@ -1,6 +1,6 @@
 # 구글 로그인 설정 가이드
 
-이 문서는 My-Kakao-Assistant 프로젝트에서 구글 로그인(Google OAuth 2.0)을 설정하는 방법을 안내합니다.
+이 문서는 My Assistant 프로젝트에서 구글 로그인(Google OAuth 2.0)을 설정하는 방법을 안내합니다.
 
 ## 개요
 

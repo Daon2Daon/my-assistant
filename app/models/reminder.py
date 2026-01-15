@@ -5,6 +5,8 @@ Reminder 모델
 
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey
 from sqlalchemy.sql import func
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from app.database import Base
 
 
@@ -29,7 +31,7 @@ class Reminder(Base):
     is_sent = Column(Boolean, default=False)
 
     # 메타데이터
-    created_at = Column(DateTime, default=func.now())
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(ZoneInfo("Asia/Seoul")))
 
     def __repr__(self):
         return f"<Reminder(id={self.reminder_id}, sent={self.is_sent}, target={self.target_datetime})>"

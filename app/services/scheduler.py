@@ -7,7 +7,9 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Optional, List, Dict
 from app.config import settings
 
@@ -31,6 +33,7 @@ class SchedulerService:
                 "coalesce": False,  # 누락된 작업을 하나로 합치지 않음
                 "max_instances": 3,  # 동시 실행 최대 인스턴스 수
             },
+            timezone=ZoneInfo("Asia/Seoul"),  # 한국 시간대 설정
         )
 
         self._running = False
@@ -91,6 +94,37 @@ class SchedulerService:
         )
 
         print(f"📅 Cron Job 등록: {job_id} - 매일 {hour:02d}:{minute:02d}")
+
+    def add_interval_job(
+        self,
+        func,
+        job_id: str,
+        minutes: int,
+        args: Optional[tuple] = None,
+        replace_existing: bool = True,
+    ):
+        """
+        주기 작업(Interval) 등록
+        지정된 시간 간격으로 반복 실행
+
+        Args:
+            func: 실행할 함수
+            job_id: Job ID (고유 식별자)
+            minutes: 실행 간격 (분)
+            args: 함수 인자
+            replace_existing: 기존 Job 교체 여부
+        """
+        trigger = IntervalTrigger(minutes=minutes)
+
+        self.scheduler.add_job(
+            func,
+            trigger=trigger,
+            id=job_id,
+            args=args or (),
+            replace_existing=replace_existing,
+        )
+
+        print(f"⏱️  Interval Job 등록: {job_id} - {minutes}분마다 실행")
 
     def add_date_job(
         self,

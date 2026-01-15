@@ -4,9 +4,9 @@ CRUD 유틸리티 함수
 """
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, List
 from sqlalchemy.orm import Session
-from app.models import User, Setting, Reminder, Log
+from app.models import User, Setting, Reminder, Log, Watchlist, PriceAlert
 
 
 # ============================================================
@@ -311,3 +311,292 @@ def get_logs(
     if category:
         query = query.filter(Log.category == category)
     return query.order_by(Log.created_at.desc()).limit(limit).all()
+
+
+# ============================================================
+# Watchlist CRUD
+# ============================================================
+
+
+def get_watchlists(db: Session, user_id: int, is_active: Optional[bool] = True) -> List[Watchlist]:
+    """
+    사용자의 관심 종목 목록 조회
+
+    Args:
+        db: 데이터베이스 세션
+        user_id: 사용자 ID
+        is_active: True(활성화만), False(비활성화만), None(전체)
+
+    Returns:
+        List[Watchlist]: 관심 종목 목록
+    """
+    query = db.query(Watchlist).filter(Watchlist.user_id == user_id)
+    if is_active is not None:
+        query = query.filter(Watchlist.is_active == is_active)
+    return query.order_by(Watchlist.created_at.desc()).all()
+
+
+def get_watchlist(db: Session, watchlist_id: int) -> Optional[Watchlist]:
+    """
+    관심 종목 ID로 조회
+
+    Args:
+        db: 데이터베이스 세션
+        watchlist_id: 관심 종목 ID
+
+    Returns:
+        Optional[Watchlist]: 관심 종목 객체 또는 None
+    """
+    return db.query(Watchlist).filter(Watchlist.watchlist_id == watchlist_id).first()
+
+
+def get_watchlist_by_ticker(db: Session, user_id: int, ticker: str) -> Optional[Watchlist]:
+    """
+    티커로 관심 종목 조회
+
+    Args:
+        db: 데이터베이스 세션
+        user_id: 사용자 ID
+        ticker: 종목 티커
+
+    Returns:
+        Optional[Watchlist]: 관심 종목 객체 또는 None
+    """
+    return (
+        db.query(Watchlist)
+        .filter(Watchlist.user_id == user_id, Watchlist.ticker == ticker)
+        .first()
+    )
+
+
+def create_watchlist(
+    db: Session,
+    user_id: int,
+    ticker: str,
+    name: Optional[str],
+    market: str,
+    purchase_price: Optional[float] = None,
+    purchase_quantity: Optional[int] = None,
+) -> Watchlist:
+    """
+    관심 종목 등록
+
+    Args:
+        db: 데이터베이스 세션
+        user_id: 사용자 ID
+        ticker: 종목 티커
+        name: 종목명
+        market: 시장 (US / KR)
+        purchase_price: 매수가 (선택)
+        purchase_quantity: 수량 (선택)
+
+    Returns:
+        Watchlist: 생성된 관심 종목 객체
+    """
+    watchlist = Watchlist(
+        user_id=user_id,
+        ticker=ticker,
+        name=name,
+        market=market,
+        purchase_price=purchase_price,
+        purchase_quantity=purchase_quantity,
+        is_active=True,
+    )
+    db.add(watchlist)
+    db.commit()
+    db.refresh(watchlist)
+    return watchlist
+
+
+def update_watchlist(
+    db: Session,
+    watchlist_id: int,
+    name: Optional[str] = None,
+    purchase_price: Optional[float] = None,
+    purchase_quantity: Optional[int] = None,
+    is_active: Optional[bool] = None,
+) -> Optional[Watchlist]:
+    """
+    관심 종목 정보 수정
+
+    Args:
+        db: 데이터베이스 세션
+        watchlist_id: 관심 종목 ID
+        name: 종목명
+        purchase_price: 매수가
+        purchase_quantity: 수량
+        is_active: 활성화 여부
+
+    Returns:
+        Optional[Watchlist]: 업데이트된 관심 종목 객체 또는 None
+    """
+    watchlist = get_watchlist(db, watchlist_id)
+    if watchlist:
+        if name is not None:
+            watchlist.name = name
+        if purchase_price is not None:
+            watchlist.purchase_price = purchase_price
+        if purchase_quantity is not None:
+            watchlist.purchase_quantity = purchase_quantity
+        if is_active is not None:
+            watchlist.is_active = is_active
+        db.commit()
+        db.refresh(watchlist)
+    return watchlist
+
+
+def delete_watchlist(db: Session, watchlist_id: int) -> bool:
+    """
+    관심 종목 삭제
+
+    Args:
+        db: 데이터베이스 세션
+        watchlist_id: 관심 종목 ID
+
+    Returns:
+        bool: 삭제 성공 여부
+    """
+    watchlist = get_watchlist(db, watchlist_id)
+    if watchlist:
+        db.delete(watchlist)
+        db.commit()
+        return True
+    return False
+
+
+# ============================================================
+# PriceAlert CRUD
+# ============================================================
+
+
+def get_price_alerts(
+    db: Session, user_id: int, is_active: Optional[bool] = True
+) -> List[PriceAlert]:
+    """
+    사용자의 가격 알림 목록 조회
+
+    Args:
+        db: 데이터베이스 세션
+        user_id: 사용자 ID
+        is_active: True(활성화만), False(비활성화만), None(전체)
+
+    Returns:
+        List[PriceAlert]: 가격 알림 목록
+    """
+    query = db.query(PriceAlert).filter(PriceAlert.user_id == user_id)
+    if is_active is not None:
+        query = query.filter(PriceAlert.is_active == is_active)
+    return query.order_by(PriceAlert.created_at.desc()).all()
+
+
+def get_price_alert(db: Session, alert_id: int) -> Optional[PriceAlert]:
+    """
+    가격 알림 ID로 조회
+
+    Args:
+        db: 데이터베이스 세션
+        alert_id: 가격 알림 ID
+
+    Returns:
+        Optional[PriceAlert]: 가격 알림 객체 또는 None
+    """
+    return db.query(PriceAlert).filter(PriceAlert.alert_id == alert_id).first()
+
+
+def get_alerts_by_watchlist(db: Session, watchlist_id: int) -> List[PriceAlert]:
+    """
+    특정 관심 종목의 가격 알림 목록 조회
+
+    Args:
+        db: 데이터베이스 세션
+        watchlist_id: 관심 종목 ID
+
+    Returns:
+        List[PriceAlert]: 가격 알림 목록
+    """
+    return (
+        db.query(PriceAlert)
+        .filter(PriceAlert.watchlist_id == watchlist_id, PriceAlert.is_active == True)
+        .all()
+    )
+
+
+def create_price_alert(
+    db: Session,
+    user_id: int,
+    watchlist_id: int,
+    alert_type: str,
+    target_price: Optional[float] = None,
+    target_percent: Optional[float] = None,
+) -> PriceAlert:
+    """
+    가격 알림 등록
+
+    Args:
+        db: 데이터베이스 세션
+        user_id: 사용자 ID
+        watchlist_id: 관심 종목 ID
+        alert_type: 알림 타입 (TARGET_HIGH / TARGET_LOW / PERCENT_CHANGE)
+        target_price: 목표 가격
+        target_percent: 목표 변동률
+
+    Returns:
+        PriceAlert: 생성된 가격 알림 객체
+    """
+    alert = PriceAlert(
+        user_id=user_id,
+        watchlist_id=watchlist_id,
+        alert_type=alert_type,
+        target_price=target_price,
+        target_percent=target_percent,
+        is_triggered=False,
+        is_active=True,
+    )
+    db.add(alert)
+    db.commit()
+    db.refresh(alert)
+    return alert
+
+
+def update_alert_triggered(
+    db: Session, alert_id: int, is_triggered: bool = True
+) -> Optional[PriceAlert]:
+    """
+    가격 알림 발동 상태 업데이트
+
+    Args:
+        db: 데이터베이스 세션
+        alert_id: 가격 알림 ID
+        is_triggered: 발동 여부
+
+    Returns:
+        Optional[PriceAlert]: 업데이트된 가격 알림 객체 또는 None
+    """
+    alert = get_price_alert(db, alert_id)
+    if alert:
+        alert.is_triggered = is_triggered
+        if is_triggered:
+            alert.triggered_at = datetime.now()
+            alert.is_active = False  # 발동 후 비활성화
+        db.commit()
+        db.refresh(alert)
+    return alert
+
+
+def delete_price_alert(db: Session, alert_id: int) -> bool:
+    """
+    가격 알림 삭제
+
+    Args:
+        db: 데이터베이스 세션
+        alert_id: 가격 알림 ID
+
+    Returns:
+        bool: 삭제 성공 여부
+    """
+    alert = get_price_alert(db, alert_id)
+    if alert:
+        db.delete(alert)
+        db.commit()
+        return True
+    return False

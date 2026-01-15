@@ -47,7 +47,7 @@ def init_db():
     모든 테이블을 생성
     """
     # 모든 모델을 임포트해야 Base.metadata에 등록됨
-    from app.models import user, setting, reminder, log
+    from app.models import user, setting, reminder, log, watchlist, price_alert
 
     # 테이블 생성
     Base.metadata.create_all(bind=engine)

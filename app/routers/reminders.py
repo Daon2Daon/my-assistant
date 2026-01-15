@@ -115,8 +115,9 @@ async def create_new_reminder(
         request: 메모 생성 요청 (message_content, target_datetime)
     """
     try:
-        # 과거 시간 체크
-        if request.target_datetime <= datetime.now(timezone.utc):
+        # 과거 시간 체크 (한국 시간대 기준)
+        kst_now = datetime.now(ZoneInfo("Asia/Seoul"))
+        if request.target_datetime <= kst_now:
             raise HTTPException(
                 status_code=400, detail="발송 시간은 현재 시간 이후여야 합니다"
             )

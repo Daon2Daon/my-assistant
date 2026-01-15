@@ -5,6 +5,8 @@ Log 모델
 
 from sqlalchemy import Column, Integer, String, DateTime
 from sqlalchemy.sql import func
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from app.database import Base
 
 
@@ -28,7 +30,7 @@ class Log(Base):
     message = Column(String, nullable=False)
 
     # 메타데이터
-    created_at = Column(DateTime, default=func.now(), index=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(ZoneInfo("Asia/Seoul")), index=True)
 
     def __repr__(self):
         return f"<Log(id={self.log_id}, category={self.category}, status={self.status})>"

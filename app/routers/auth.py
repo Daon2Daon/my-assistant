@@ -212,7 +212,7 @@ async def kakao_test_message(db: Session = Depends(get_db)):
             )
 
         # 테스트 메시지 발송
-        message = "🎉 My-Kakao-Assistant 테스트 메시지입니다!\n카카오 인증이 정상적으로 완료되었습니다."
+        message = "🎉 My Assistant 테스트 메시지입니다!\n카카오 인증이 정상적으로 완료되었습니다."
 
         result = await kakao_auth_service.send_message_to_me(
             user.kakao_access_token, message
@@ -624,7 +624,7 @@ async def telegram_test_message(db: Session = Depends(get_db)):
             )
 
         # 테스트 메시지 발송
-        message = "🎉 My-Kakao-Assistant 텔레그램 연동 테스트 메시지입니다!\n텔레그램 연동이 정상적으로 완료되었습니다."
+        message = "🎉 My Assistant 텔레그램 연동 테스트 메시지입니다!\n텔레그램 연동이 정상적으로 완료되었습니다."
 
         result = await notification_service.send_to_telegram(user, message)
 

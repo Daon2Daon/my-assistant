@@ -3,13 +3,21 @@
 document.addEventListener('DOMContentLoaded', function() {
     loadFinanceStatus();
     loadFinanceSettings();
+    loadUSWatchlist();
+    loadKRWatchlist();
     loadLogs();
+    loadPriceAlerts();
+    loadWatchlistSelectOptions();
 
     // 활성화 토글 이벤트 리스너
     const activeToggle = document.getElementById('finance-active-toggle');
     activeToggle.addEventListener('change', async function() {
         await toggleFinanceActive(this.checked);
     });
+
+    // 알림 유형 변경 이벤트 리스너
+    const alertTypeSelect = document.getElementById('alert-type-select');
+    alertTypeSelect.addEventListener('change', updateAlertValueHint);
 });
 
 // 금융 모듈 상태 로드
@@ -304,5 +312,512 @@ async function loadLogs() {
 
     } catch (error) {
         container.innerHTML = '<p class="text-danger text-center py-3">로그를 불러오는데 실패했습니다</p>';
+    }
+}
+
+// ============================================================
+// 관심 종목 관리 기능
+// ============================================================
+
+// US Market 관심 종목 목록 로드
+async function loadUSWatchlist() {
+    const container = document.getElementById('us-watchlist-container');
+
+    container.innerHTML = `
+        <div class="text-center text-muted py-3">
+            <div class="spinner-border spinner-border-sm" role="status"></div>
+            <span class="ms-2">Loading...</span>
+        </div>
+    `;
+
+    try {
+        const data = await fetchApi('/api/finance/watchlist');
+        const usStocks = data.watchlists.filter(stock => stock.market === 'US');
+
+        if (usStocks.length === 0) {
+            container.innerHTML = '<p class="text-muted text-center py-3">등록된 종목이 없습니다</p>';
+            return;
+        }
+
+        let html = '<div class="row">';
+        for (const stock of usStocks) {
+            html += renderWatchlistCard(stock);
+        }
+        html += '</div>';
+
+        container.innerHTML = html;
+
+    } catch (error) {
+        container.innerHTML = '<p class="text-danger text-center py-3">종목 목록을 불러오는데 실패했습니다</p>';
+    }
+}
+
+// KR Market 관심 종목 목록 로드
+async function loadKRWatchlist() {
+    const container = document.getElementById('kr-watchlist-container');
+
+    container.innerHTML = `
+        <div class="text-center text-muted py-3">
+            <div class="spinner-border spinner-border-sm" role="status"></div>
+            <span class="ms-2">Loading...</span>
+        </div>
+    `;
+
+    try {
+        const data = await fetchApi('/api/finance/watchlist');
+        const krStocks = data.watchlists.filter(stock => stock.market === 'KR');
+
+        if (krStocks.length === 0) {
+            container.innerHTML = '<p class="text-muted text-center py-3">등록된 종목이 없습니다</p>';
+            return;
+        }
+
+        let html = '<div class="row">';
+        for (const stock of krStocks) {
+            html += renderWatchlistCard(stock);
+        }
+        html += '</div>';
+
+        container.innerHTML = html;
+
+    } catch (error) {
+        container.innerHTML = '<p class="text-danger text-center py-3">종목 목록을 불러오는데 실패했습니다</p>';
+    }
+}
+
+// 관심 종목 카드 렌더링
+function renderWatchlistCard(stock) {
+    const marketBadge = stock.market === 'US'
+        ? '<span class="badge bg-primary">US</span>'
+        : '<span class="badge bg-danger">KR</span>';
+
+    return `
+        <div class="col-md-6 col-lg-4 mb-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                            <h6 class="mb-0">${stock.ticker}</h6>
+                            <small class="text-muted">${stock.name || stock.ticker}</small>
+                        </div>
+                        ${marketBadge}
+                    </div>
+                    <div class="mt-3">
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteWatchlist(${stock.watchlist_id})">
+                            <i class="bi bi-trash me-1"></i>삭제
+                        </button>
+                        <button class="btn btn-sm btn-outline-info" onclick="viewStockDetail('${stock.ticker}', '${stock.market}')">
+                            <i class="bi bi-info-circle me-1"></i>시세
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// 관심 종목 등록
+async function addWatchlist(market) {
+    const inputId = market === 'US' ? 'us-ticker-input' : 'kr-ticker-input';
+    const ticker = document.getElementById(inputId).value.trim().toUpperCase();
+
+    if (!ticker) {
+        showToast('티커를 입력해주세요', 'warning');
+        return;
+    }
+
+    try {
+        const payload = {
+            ticker: ticker,
+            market: market
+        };
+
+        await fetchApi('/api/finance/watchlist', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        showToast('종목이 등록되었습니다', 'success');
+
+        // 입력 필드 초기화
+        document.getElementById(inputId).value = '';
+
+        // 해당 시장 목록 새로고침
+        if (market === 'US') {
+            loadUSWatchlist();
+        } else {
+            loadKRWatchlist();
+        }
+
+    } catch (error) {
+        showToast(`등록 실패: ${error.message}`, 'error');
+    }
+}
+
+// 관심 종목 삭제
+async function deleteWatchlist(watchlistId) {
+    if (!confirm('이 종목을 삭제하시겠습니까?')) {
+        return;
+    }
+
+    try {
+        await fetchApi(`/api/finance/watchlist/${watchlistId}`, {
+            method: 'DELETE'
+        });
+
+        showToast('종목이 삭제되었습니다', 'success');
+
+        // 양쪽 목록 모두 새로고침
+        loadUSWatchlist();
+        loadKRWatchlist();
+
+    } catch (error) {
+        showToast(`삭제 실패: ${error.message}`, 'error');
+    }
+}
+
+// 종목 상세 정보 보기
+async function viewStockDetail(ticker, market) {
+    const modalHtml = `
+        <div class="modal fade" id="stockDetailModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">${ticker} 상세 정보</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body" id="stock-detail-body">
+                        <div class="text-center py-4">
+                            <div class="spinner-border" role="status"></div>
+                            <p class="mt-2">종목 정보를 불러오는 중...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // 기존 모달 제거
+    const existingModal = document.getElementById('stockDetailModal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+
+    // 새 모달 추가
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    const modal = new bootstrap.Modal(document.getElementById('stockDetailModal'));
+    modal.show();
+
+    // 데이터 로드
+    try {
+        const data = await fetchApi(`/api/finance/quote/${ticker}?market=${market}`);
+
+        const quote = data.quote;
+        const periodChanges = data.period_changes;
+        const week52 = data.week_52_range;
+
+        const changeEmoji = quote.change_percent >= 0 ? '🔺' : '🔻';
+        const changeSign = quote.change_percent >= 0 ? '+' : '';
+        const priceFormat = market === 'US' ? `$${quote.price.toFixed(2)}` : `${quote.price.toLocaleString()}원`;
+
+        let detailHtml = `
+            <div class="mb-4">
+                <h4>${quote.name}</h4>
+                <h3 class="mb-0">${changeEmoji} ${priceFormat}</h3>
+                <p class="text-muted">${changeSign}${quote.change_percent.toFixed(2)}%</p>
+            </div>
+        `;
+
+        if (periodChanges) {
+            detailHtml += `
+                <div class="mb-4">
+                    <h6>기간별 변동률</h6>
+                    <div class="row">
+                        <div class="col-4">
+                            <div class="text-center p-2 border rounded">
+                                <small class="text-muted d-block">일간</small>
+                                <strong class="${periodChanges.daily >= 0 ? 'text-success' : 'text-danger'}">
+                                    ${periodChanges.daily >= 0 ? '+' : ''}${periodChanges.daily.toFixed(2)}%
+                                </strong>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="text-center p-2 border rounded">
+                                <small class="text-muted d-block">주간</small>
+                                <strong class="${periodChanges.weekly >= 0 ? 'text-success' : 'text-danger'}">
+                                    ${periodChanges.weekly >= 0 ? '+' : ''}${periodChanges.weekly.toFixed(2)}%
+                                </strong>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <div class="text-center p-2 border rounded">
+                                <small class="text-muted d-block">월간</small>
+                                <strong class="${periodChanges.monthly >= 0 ? 'text-success' : 'text-danger'}">
+                                    ${periodChanges.monthly >= 0 ? '+' : ''}${periodChanges.monthly.toFixed(2)}%
+                                </strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        if (week52) {
+            const lowFormat = market === 'US' ? week52.low.toFixed(2) : week52.low.toLocaleString();
+            const highFormat = market === 'US' ? week52.high.toFixed(2) : week52.high.toLocaleString();
+
+            detailHtml += `
+                <div class="mb-3">
+                    <h6>52주 범위</h6>
+                    <div class="d-flex justify-content-between mb-2">
+                        <small>최저: ${lowFormat}</small>
+                        <small>최고: ${highFormat}</small>
+                    </div>
+                    <div class="progress" style="height: 20px;">
+                        <div class="progress-bar" role="progressbar"
+                             style="width: ${week52.position_percent}%"
+                             aria-valuenow="${week52.position_percent}" aria-valuemin="0" aria-valuemax="100">
+                            ${week52.position_percent.toFixed(1)}%
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        detailHtml += `
+            <div class="text-muted small">
+                <i class="bi bi-info-circle me-1"></i>
+                조회 시간: ${new Date(data.timestamp).toLocaleString('ko-KR')}
+            </div>
+        `;
+
+        document.getElementById('stock-detail-body').innerHTML = detailHtml;
+
+    } catch (error) {
+        document.getElementById('stock-detail-body').innerHTML = `
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle me-2"></i>
+                종목 정보를 불러오는데 실패했습니다: ${error.message}
+            </div>
+        `;
+    }
+}
+
+// ========================================
+// 가격 알림 관리 함수
+// ========================================
+
+/**
+ * 가격 알림 목록 로드
+ */
+async function loadPriceAlerts() {
+    const container = document.getElementById('alerts-container');
+
+    try {
+        const data = await fetchApi('/api/finance/alerts');
+
+        if (!data.alerts || data.alerts.length === 0) {
+            container.innerHTML = `
+                <div class="text-center text-muted py-3">
+                    <i class="bi bi-bell-slash me-2"></i>
+                    등록된 가격 알림이 없습니다
+                </div>
+            `;
+            return;
+        }
+
+        let html = '<div class="row">';
+
+        data.alerts.forEach(alert => {
+            const isTriggered = alert.is_triggered;
+            const badgeClass = isTriggered ? 'bg-secondary' : 'bg-success';
+            const statusText = isTriggered ? '발동됨' : '활성';
+
+            let alertTypeText = '';
+            let targetValue = '';
+
+            if (alert.alert_type === 'TARGET_HIGH') {
+                alertTypeText = '목표가 (상승)';
+                targetValue = `$${alert.target_price.toFixed(2)}`;
+            } else if (alert.alert_type === 'TARGET_LOW') {
+                alertTypeText = '손절가 (하락)';
+                targetValue = `$${alert.target_price.toFixed(2)}`;
+            } else if (alert.alert_type === 'PERCENT_CHANGE') {
+                alertTypeText = '일일 변동률';
+                targetValue = `${alert.target_percent > 0 ? '+' : ''}${alert.target_percent}%`;
+            }
+
+            html += `
+                <div class="col-md-6 mb-3">
+                    <div class="card ${isTriggered ? 'border-secondary' : 'border-success'}">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <div>
+                                    <h6 class="mb-1">
+                                        <span class="badge ${alert.market === 'US' ? 'bg-primary' : 'bg-danger'}">${alert.market}</span>
+                                        ${alert.ticker}
+                                    </h6>
+                                </div>
+                                <span class="badge ${badgeClass}">${statusText}</span>
+                            </div>
+                            <p class="mb-1 small">
+                                <strong>알림 유형:</strong> ${alertTypeText}
+                            </p>
+                            <p class="mb-1 small">
+                                <strong>목표 값:</strong> ${targetValue}
+                            </p>
+                            <p class="mb-2 small text-muted">
+                                등록: ${new Date(alert.created_at).toLocaleString('ko-KR')}
+                            </p>
+                            ${isTriggered ? `
+                                <p class="mb-2 small text-success">
+                                    <i class="bi bi-check-circle me-1"></i>
+                                    발동: ${new Date(alert.triggered_at).toLocaleString('ko-KR')}
+                                </p>
+                            ` : ''}
+                            <button class="btn btn-sm btn-outline-danger" onclick="deletePriceAlert(${alert.alert_id})">
+                                <i class="bi bi-trash me-1"></i>삭제
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        html += '</div>';
+        container.innerHTML = html;
+
+    } catch (error) {
+        container.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle me-2"></i>
+                가격 알림 목록을 불러오는데 실패했습니다: ${error.message}
+            </div>
+        `;
+    }
+}
+
+/**
+ * 관심 종목 목록을 select box에 로드
+ */
+async function loadWatchlistSelectOptions() {
+    const select = document.getElementById('alert-watchlist-select');
+
+    try {
+        const data = await fetchApi('/api/finance/watchlist');
+
+        // 기본 옵션
+        let html = '<option value="">종목을 선택하세요</option>';
+
+        if (data.watchlists && data.watchlists.length > 0) {
+            data.watchlists.forEach(stock => {
+                const displayName = stock.name ? `${stock.ticker} (${stock.name})` : stock.ticker;
+                html += `<option value="${stock.watchlist_id}" data-ticker="${stock.ticker}" data-market="${stock.market}">${displayName} [${stock.market}]</option>`;
+            });
+        }
+
+        select.innerHTML = html;
+
+    } catch (error) {
+        console.error('관심 종목 목록 로드 실패:', error);
+        showMessage('관심 종목 목록을 불러오는데 실패했습니다', 'danger');
+    }
+}
+
+/**
+ * 알림 유형 변경 시 입력 힌트 업데이트
+ */
+function updateAlertValueHint() {
+    const alertType = document.getElementById('alert-type-select').value;
+    const hint = document.getElementById('alert-value-hint');
+    const input = document.getElementById('alert-value-input');
+
+    if (alertType === 'TARGET_HIGH' || alertType === 'TARGET_LOW') {
+        hint.textContent = '목표 가격 (USD)';
+        input.placeholder = '예: 150.00';
+    } else if (alertType === 'PERCENT_CHANGE') {
+        hint.textContent = '목표 변동률 (%)';
+        input.placeholder = '예: 5.0 또는 -3.0';
+    }
+}
+
+/**
+ * 가격 알림 등록
+ */
+async function createPriceAlert() {
+    const watchlistId = document.getElementById('alert-watchlist-select').value;
+    const alertType = document.getElementById('alert-type-select').value;
+    const alertValue = parseFloat(document.getElementById('alert-value-input').value);
+
+    // 유효성 검사
+    if (!watchlistId) {
+        showMessage('종목을 선택해주세요', 'warning');
+        return;
+    }
+
+    if (!alertValue || isNaN(alertValue)) {
+        showMessage('목표 값을 입력해주세요', 'warning');
+        return;
+    }
+
+    if ((alertType === 'TARGET_HIGH' || alertType === 'TARGET_LOW') && alertValue <= 0) {
+        showMessage('목표가는 0보다 커야 합니다', 'warning');
+        return;
+    }
+
+    try {
+        const payload = {
+            watchlist_id: parseInt(watchlistId),
+            alert_type: alertType
+        };
+
+        // 알림 유형에 따라 target_price 또는 target_percent 설정
+        if (alertType === 'TARGET_HIGH' || alertType === 'TARGET_LOW') {
+            payload.target_price = alertValue;
+        } else if (alertType === 'PERCENT_CHANGE') {
+            payload.target_percent = alertValue;
+        }
+
+        await fetchApi('/api/finance/alerts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        showMessage('가격 알림이 등록되었습니다', 'success');
+
+        // 입력 필드 초기화
+        document.getElementById('alert-watchlist-select').value = '';
+        document.getElementById('alert-value-input').value = '';
+
+        // 알림 목록 새로고침
+        loadPriceAlerts();
+
+    } catch (error) {
+        showMessage(`가격 알림 등록 실패: ${error.message}`, 'danger');
+    }
+}
+
+/**
+ * 가격 알림 삭제
+ */
+async function deletePriceAlert(alertId) {
+    if (!confirm('이 가격 알림을 삭제하시겠습니까?')) {
+        return;
+    }
+
+    try {
+        await fetchApi(`/api/finance/alerts/${alertId}`, {
+            method: 'DELETE'
+        });
+
+        showMessage('가격 알림이 삭제되었습니다', 'success');
+
+        // 알림 목록 새로고침
+        loadPriceAlerts();
+
+    } catch (error) {
+        showMessage(`가격 알림 삭제 실패: ${error.message}`, 'danger');
     }
 }

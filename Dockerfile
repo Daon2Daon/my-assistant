@@ -1,4 +1,4 @@
-# My-Kakao-Assistant Dockerfile
+# My Assistant Dockerfile
 # Python 3.10 slim 이미지 기반
 
 FROM python:3.10-slim

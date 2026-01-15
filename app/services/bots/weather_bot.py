@@ -6,6 +6,7 @@ OpenWeatherMap API를 사용한 날씨 정보 수집 및 알림
 import httpx
 from typing import Dict, Optional
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from app.config import settings
 from app.database import SessionLocal
 from app.crud import get_or_create_user, create_log, is_setting_active
@@ -123,7 +124,7 @@ class WeatherBot:
             # 메시지 구성
             message = f"""☀️ 오늘의 날씨 ({city})
 
-📅 {datetime.now().strftime('%Y년 %m월 %d일 %H:%M')}
+📅 {datetime.now(ZoneInfo("Asia/Seoul")).strftime('%Y년 %m월 %d일 %H:%M')}
 
 🌡️ 온도 정보:
 - 현재 기온: {temp:.1f}°C

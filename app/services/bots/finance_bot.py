@@ -516,7 +516,7 @@ class FinanceBot:
                 change_percent = data["change_percent"]
 
                 # 상승/하락 이모지
-                emoji = "🔺" if change >= 0 else "🔻"
+                emoji = "🟢" if change >= 0 else "🔴"
                 sign = "+" if change >= 0 else ""
 
                 message += f"""{emoji} {name}: {price:,.2f} ({sign}{change_percent:.2f}%)
@@ -538,7 +538,7 @@ class FinanceBot:
 
                     price = quote.get("price", 0)
                     change_pct = quote.get("change_percent", 0)
-                    emoji = "🔺" if change_pct >= 0 else "🔻"
+                    emoji = "🟢" if change_pct >= 0 else "🔴"
                     sign = "+" if change_pct >= 0 else ""
 
                     message += f"\n{emoji} {ticker} ({name})\n"
@@ -588,7 +588,7 @@ class FinanceBot:
                 change_percent = data["change_percent"]
 
                 # 상승/하락 이모지
-                emoji = "🔺" if change_percent >= 0 else "🔻"
+                emoji = "🟢" if change_percent >= 0 else "🔴"
                 sign = "+" if change_percent >= 0 else ""
 
                 message += f"""{emoji} {name}: {price:,.2f} ({sign}{change_percent:.2f}%)
@@ -610,7 +610,7 @@ class FinanceBot:
 
                     price = quote.get("price", 0)
                     change_pct = quote.get("change_percent", 0)
-                    emoji = "🔺" if change_pct >= 0 else "🔻"
+                    emoji = "🟢" if change_pct >= 0 else "🔴"
                     sign = "+" if change_pct >= 0 else ""
 
                     message += f"\n{emoji} {ticker} ({name})\n"
@@ -666,7 +666,7 @@ class FinanceBot:
                 watchlists = get_watchlists(db, user.user_id, is_active=True)
                 us_watchlists = [w for w in watchlists if w.market == "US"]
 
-                for watchlist in us_watchlists[:5]:  # 최대 5개
+                for watchlist in us_watchlists[:10]:  # 최대 10개
                     try:
                         # 종목 시세 조회
                         quote = self.get_stock_quote(watchlist.ticker, "US")
@@ -764,7 +764,7 @@ class FinanceBot:
                 watchlists = get_watchlists(db, user.user_id, is_active=True)
                 kr_watchlists = [w for w in watchlists if w.market == "KR"]
 
-                for watchlist in kr_watchlists[:5]:  # 최대 5개
+                for watchlist in kr_watchlists[:10]:  # 최대 10개
                     try:
                         # 종목 시세 조회
                         quote = self.get_stock_quote(watchlist.ticker, "KR")

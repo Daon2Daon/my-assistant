@@ -247,6 +247,112 @@ class SchedulerService:
             return False
 
 
+    def setup_weather_job(self):
+        """
+        Weather 알림 Job 설정
+        설정된 시간에 날씨 알림 발송 Job 등록
+        """
+        from app.database import SessionLocal
+        from app.crud import get_setting_by_category, get_or_create_user
+        from app.services.bots.weather_bot import send_weather_notification_sync
+
+        db = SessionLocal()
+        try:
+            user = get_or_create_user(db)
+            setting = get_setting_by_category(db, user.user_id, "weather")
+
+            if not setting or not setting.is_active:
+                print("⏸️  Weather 알림이 비활성화되어 있습니다")
+                return
+
+            # 설정에서 시간 파싱
+            notification_time = setting.notification_time or "07:00"
+
+            try:
+                hour, minute = map(int, notification_time.split(":"))
+                self.add_cron_job(
+                    func=send_weather_notification_sync,
+                    job_id="weather_daily",
+                    hour=hour,
+                    minute=minute,
+                )
+                print(f"✅ Weather 알림 Job 등록: 매일 {notification_time}")
+            except Exception as e:
+                print(f"❌ Weather Job 등록 실패: {e}")
+
+        except Exception as e:
+            print(f"❌ Weather Job 설정 실패: {e}")
+        finally:
+            db.close()
+
+    def update_weather_job(self):
+        """
+        Weather 설정 변경 시 Job 업데이트
+        기존 Job을 제거하고 새로 등록
+        """
+        try:
+            # 기존 Weather Job 제거
+            self.remove_job("weather_daily")
+
+            # 새로 등록
+            self.setup_weather_job()
+
+        except Exception as e:
+            print(f"❌ Weather Job 업데이트 실패: {e}")
+
+    def setup_calendar_job(self):
+        """
+        Calendar 알림 Job 설정
+        설정된 시간에 캘린더 브리핑 알림 발송 Job 등록
+        """
+        from app.database import SessionLocal
+        from app.crud import get_setting_by_category, get_or_create_user
+        from app.services.bots.calendar_bot import send_calendar_notification_sync
+
+        db = SessionLocal()
+        try:
+            user = get_or_create_user(db)
+            setting = get_setting_by_category(db, user.user_id, "calendar")
+
+            if not setting or not setting.is_active:
+                print("⏸️  Calendar 알림이 비활성화되어 있습니다")
+                return
+
+            # 설정에서 시간 파싱
+            notification_time = setting.notification_time or "08:00"
+
+            try:
+                hour, minute = map(int, notification_time.split(":"))
+                self.add_cron_job(
+                    func=send_calendar_notification_sync,
+                    job_id="calendar_daily",
+                    hour=hour,
+                    minute=minute,
+                )
+                print(f"✅ Calendar 알림 Job 등록: 매일 {notification_time}")
+            except Exception as e:
+                print(f"❌ Calendar Job 등록 실패: {e}")
+
+        except Exception as e:
+            print(f"❌ Calendar Job 설정 실패: {e}")
+        finally:
+            db.close()
+
+    def update_calendar_job(self):
+        """
+        Calendar 설정 변경 시 Job 업데이트
+        기존 Job을 제거하고 새로 등록
+        """
+        try:
+            # 기존 Calendar Job 제거
+            self.remove_job("calendar_daily")
+
+            # 새로 등록
+            self.setup_calendar_job()
+
+        except Exception as e:
+            print(f"❌ Calendar Job 업데이트 실패: {e}")
+
     def setup_finance_jobs(self):
         """
         Finance 알림 Job 설정

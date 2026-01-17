@@ -154,8 +154,18 @@ async def update_setting_by_category(
             is_active=request.is_active,
         )
 
-        # Finance 설정 변경 시 스케줄러 Job 업데이트
-        if category == "finance":
+        # 설정 변경 시 스케줄러 Job 업데이트
+        if category == "weather":
+            try:
+                scheduler_service.update_weather_job()
+            except Exception as e:
+                print(f"⚠️  Weather Job 업데이트 실패: {e}")
+        elif category == "calendar":
+            try:
+                scheduler_service.update_calendar_job()
+            except Exception as e:
+                print(f"⚠️  Calendar Job 업데이트 실패: {e}")
+        elif category == "finance":
             try:
                 scheduler_service.update_finance_jobs()
             except Exception as e:

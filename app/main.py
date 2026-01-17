@@ -74,6 +74,18 @@ async def startup_event():
     except Exception as e:
         print(f"⚠️  가격 알림 체크 Job 등록 실패: {e}")
 
+    # Weather 알림 Job 등록
+    try:
+        scheduler_service.setup_weather_job()
+    except Exception as e:
+        print(f"⚠️  Weather Job 등록 실패: {e}")
+
+    # Calendar 알림 Job 등록
+    try:
+        scheduler_service.setup_calendar_job()
+    except Exception as e:
+        print(f"⚠️  Calendar Job 등록 실패: {e}")
+
     # Finance 알림 Job 등록
     try:
         scheduler_service.setup_finance_jobs()

@@ -1,9 +1,9 @@
 """
 인증 API 라우터
-카카오/구글 OAuth 로그인 엔드포인트
+카카오/구글 OAuth 로그인 엔드포인트 및 관리자 세션 로그인
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Form
 from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
 from urllib.parse import quote
@@ -12,6 +12,12 @@ from pydantic import BaseModel
 from app.database import get_db
 from app.services.auth.kakao_auth import kakao_auth_service
 from app.services.auth.google_auth import google_auth_service
+from app.services.auth.session_auth import (
+    verify_admin_credentials,
+    create_session,
+    destroy_session,
+    is_authenticated,
+)
 from app.crud import (
     get_or_create_user,
     update_user_kakao_tokens,
@@ -648,3 +654,102 @@ async def telegram_test_message(db: Session = Depends(get_db)):
     except Exception as e:
         create_log(db, "memo", "FAIL", f"텔레그램 테스트 메시지 발송 실패: {str(e)}")
         raise HTTPException(status_code=500, detail=f"메시지 발송 실패: {str(e)}")
+
+
+# ============================================================
+# 관리자 세션 로그인
+# ============================================================
+
+
+@router.post("/login")
+async def admin_login(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """
+    관리자 로그인
+    세션 기반 인증으로 관리자 로그인 처리
+
+    Args:
+        request: FastAPI Request 객체
+        username: 관리자 아이디
+        password: 관리자 비밀번호
+        db: 데이터베이스 세션
+
+    Returns:
+        RedirectResponse: 로그인 성공 시 메인 페이지로, 실패 시 로그인 페이지로 리다이렉트
+    """
+    # 인증 확인
+    if verify_admin_credentials(username, password):
+        # 세션 생성
+        create_session(request)
+
+        # 로그 기록
+        try:
+            create_log(db, "auth", "SUCCESS", f"관리자 로그인 성공 (username: {username})")
+        except Exception as e:
+            print(f"⚠️  로그 기록 실패: {e}")
+
+        # 메인 페이지로 리다이렉트
+        return RedirectResponse(url="/", status_code=303)
+    else:
+        # 로그 기록
+        try:
+            create_log(db, "auth", "FAIL", f"관리자 로그인 실패 (username: {username})")
+        except Exception as e:
+            print(f"⚠️  로그 기록 실패: {e}")
+
+        # 로그인 페이지로 리다이렉트 (에러 파라미터 포함)
+        return RedirectResponse(url="/login?error=1", status_code=303)
+
+
+@router.post("/logout")
+async def admin_logout(request: Request, db: Session = Depends(get_db)):
+    """
+    관리자 로그아웃
+    세션을 제거하고 로그인 페이지로 리다이렉트
+
+    Args:
+        request: FastAPI Request 객체
+        db: 데이터베이스 세션
+
+    Returns:
+        RedirectResponse: 로그인 페이지로 리다이렉트
+    """
+    # 로그 기록 (세션 제거 전)
+    username = request.session.get("username", "unknown")
+    try:
+        create_log(db, "auth", "SUCCESS", f"관리자 로그아웃 (username: {username})")
+    except Exception as e:
+        print(f"⚠️  로그 기록 실패: {e}")
+
+    # 세션 제거
+    destroy_session(request)
+
+    # 로그인 페이지로 리다이렉트
+    return RedirectResponse(url="/login", status_code=303)
+
+
+@router.get("/session/status")
+async def session_status(request: Request):
+    """
+    세션 상태 확인
+    현재 세션의 인증 상태를 반환
+
+    Args:
+        request: FastAPI Request 객체
+
+    Returns:
+        JSONResponse: 인증 상태 정보
+    """
+    authenticated = is_authenticated(request)
+    username = request.session.get("username") if authenticated else None
+
+    return JSONResponse(
+        content={
+            "authenticated": authenticated,
+            "username": username,
+        }
+    )

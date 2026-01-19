@@ -39,6 +39,14 @@ class Settings:
     SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-change-this")
     DEBUG: bool = os.getenv("DEBUG", "True").lower() == "true"
 
+    # Admin Login
+    ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "admin")
+    ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "")
+    SESSION_SECRET_KEY: str = os.getenv(
+        "SESSION_SECRET_KEY", "change-this-to-random-32-chars-min"
+    )
+    SESSION_MAX_AGE: int = int(os.getenv("SESSION_MAX_AGE", "86400"))  # 24시간
+
     # API URLs
     KAKAO_AUTH_URL: str = "https://kauth.kakao.com/oauth/authorize"
     KAKAO_TOKEN_URL: str = "https://kauth.kakao.com/oauth/token"

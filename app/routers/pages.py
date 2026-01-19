@@ -3,8 +3,8 @@ Pages 라우터
 모든 Web UI 페이지 렌더링 통합 관리
 """
 
-from fastapi import APIRouter, Request, Depends
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import APIRouter, Request, Depends, Query
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,30 @@ from app.crud import get_or_create_user
 templates = Jinja2Templates(directory="app/templates")
 
 router = APIRouter(tags=["Pages"])
+
+
+@router.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, error: str = Query(None)):
+    """
+    로그인 페이지
+    이미 로그인된 경우 메인 페이지로 리다이렉트
+
+    Args:
+        request: FastAPI Request 객체
+        error: 로그인 실패 시 전달되는 에러 파라미터
+
+    Returns:
+        HTMLResponse: 로그인 페이지 또는 리다이렉트
+    """
+    # 이미 로그인된 경우 메인 페이지로 리다이렉트
+    if request.session.get("authenticated"):
+        return RedirectResponse(url="/", status_code=303)
+
+    # 로그인 페이지 렌더링
+    return templates.TemplateResponse(
+        "login.html",
+        {"request": request, "error": error}
+    )
 
 
 @router.get("/", response_class=HTMLResponse)

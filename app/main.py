@@ -6,8 +6,10 @@ FastAPI 기반 개인용 카카오톡 비서 앱
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 from app.config import settings
 from app.database import init_db
+from app.middleware import AuthMiddleware
 from app.routers import auth, scheduler, reminders, pages, settings as settings_router, logs, weather, finance, calendar
 from app.services.scheduler import scheduler_service
 from app.services.bots.memo_bot import memo_bot
@@ -19,6 +21,21 @@ app = FastAPI(
     description="개인용 카카오톡 비서 앱 - 날씨, 금융, 일정 알림 서비스",
     version="0.1.0",
     debug=settings.DEBUG,
+)
+
+# 미들웨어 등록 (주의: 나중에 등록된 것이 먼저 실행됨)
+# 따라서 AuthMiddleware를 먼저 등록하고, SessionMiddleware를 나중에 등록해야 함
+
+# 1. 인증 미들웨어 등록 (먼저 등록, 나중에 실행)
+app.add_middleware(AuthMiddleware)
+
+# 2. 세션 미들웨어 등록 (나중에 등록, 먼저 실행)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.SESSION_SECRET_KEY,
+    max_age=settings.SESSION_MAX_AGE,
+    same_site="lax",
+    https_only=not settings.DEBUG,  # 프로덕션에서는 HTTPS 강제
 )
 
 # Static 파일 서빙

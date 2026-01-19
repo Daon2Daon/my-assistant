@@ -22,6 +22,6 @@
 - Do not use emoticons or emojis when writing documentation.
 
 ## 참고사항
-- @docs/finance_upgrade.md 파일을 참고해서 앱 변경 개발을 진행해주세요.
-- @docs/finance_upgrade.md 파일에 단계별로 '[ ]' 항목이 있습니다. 이곳에 진행 완료된 항목은 체크해주세요.
+- @docs/loginplan.md 파일을 참고해서 앱 변경 개발을 진행해주세요.
+- @docs/loginplan.md 파일에 단계별로 '[ ]' 항목이 있습니다. 이곳에 진행 완료된 항목은 체크해주세요.
 - 다음 phase 개발을 진행하기 전에 진행여부를 물어봐주세요.

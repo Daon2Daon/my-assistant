@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadCalendarStatus();
     loadCalendarSettings();
     loadLogs();
+    loadCalendarList();
 
     // 활성화 토글 이벤트 리스너
     const activeToggle = document.getElementById('calendar-active-toggle');
@@ -253,5 +254,141 @@ async function loadLogs() {
 
     } catch (error) {
         container.innerHTML = '<p class="text-danger text-center py-3">로그를 불러오는데 실패했습니다</p>';
+    }
+}
+
+// 캘린더 목록 로드
+async function loadCalendarList() {
+    const container = document.getElementById('calendar-list-container');
+
+    container.innerHTML = `
+        <div class="text-center text-muted py-3">
+            <div class="spinner-border spinner-border-sm" role="status"></div>
+            <span class="ms-2">캘린더 목록 로딩 중...</span>
+        </div>
+    `;
+
+    try {
+        // 캘린더 목록 조회
+        const listData = await fetchApi('/api/calendar/list');
+
+        // 선택된 캘린더 조회
+        let selectedCalendars = [];
+        try {
+            const selectedData = await fetchApi('/api/calendar/selected');
+            selectedCalendars = selectedData.calendars || [];
+        } catch (error) {
+            console.log('선택된 캘린더 정보 없음');
+        }
+
+        if (listData.calendars.length === 0) {
+            container.innerHTML = `
+                <div class="alert alert-warning mb-0">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    캘린더 목록을 불러올 수 없습니다. Google 계정을 다시 연동해주세요.
+                </div>
+            `;
+            return;
+        }
+
+        // 선택된 캘린더 ID 목록
+        const selectedIds = selectedCalendars.map(cal => cal.id);
+
+        // 캘린더 목록 렌더링
+        let html = '<div class="row">';
+        listData.calendars.forEach((calendar, index) => {
+            const isSelected = selectedIds.includes(calendar.id);
+            const isPrimary = calendar.primary;
+
+            html += `
+                <div class="col-md-6 mb-3">
+                    <div class="border rounded overflow-hidden position-relative" style="border-left: 5px solid ${calendar.backgroundColor} !important;">
+                        <div class="p-3">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <label for="calendar-${index}" style="cursor: pointer; flex-grow: 1;">
+                                    <strong class="d-block mb-1">${calendar.summary}</strong>
+                                    ${calendar.description ? `<small class="text-muted d-block mb-2">${calendar.description}</small>` : ''}
+                                    <div class="d-flex gap-1 mt-2">
+                                        ${isPrimary ? '<span class="badge bg-primary">Primary</span>' : ''}
+                                        <span class="badge" style="background-color: ${calendar.backgroundColor}; color: ${calendar.foregroundColor}">
+                                            ${calendar.accessRole}
+                                        </span>
+                                    </div>
+                                </label>
+                                <div class="form-check ms-2">
+                                    <input
+                                        class="form-check-input calendar-checkbox"
+                                        type="checkbox"
+                                        id="calendar-${index}"
+                                        data-id="${calendar.id}"
+                                        data-name="${calendar.summary}"
+                                        data-color="${calendar.backgroundColor}"
+                                        ${isSelected ? 'checked' : ''}
+                                        style="cursor: pointer; width: 20px; height: 20px;"
+                                    >
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+
+        container.innerHTML = html;
+
+    } catch (error) {
+        // Google 연동이 필요한 경우
+        if (error.message && error.message.includes('Google')) {
+            container.innerHTML = `
+                <div class="alert alert-warning mb-0">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    Google 계정 연동이 필요합니다
+                    <div class="mt-2">
+                        <a href="/auth/google/login" class="btn btn-sm btn-danger">
+                            <i class="bi bi-google me-1"></i>Google 로그인
+                        </a>
+                    </div>
+                </div>
+            `;
+        } else {
+            container.innerHTML = `
+                <div class="alert alert-danger mb-0">
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    캘린더 목록을 불러오는데 실패했습니다: ${error.message}
+                </div>
+            `;
+        }
+    }
+}
+
+// 캘린더 선택 저장
+async function saveCalendarSelection() {
+    try {
+        // 체크된 캘린더 수집
+        const checkboxes = document.querySelectorAll('.calendar-checkbox:checked');
+        const selectedCalendars = Array.from(checkboxes).map(checkbox => ({
+            id: checkbox.dataset.id,
+            name: checkbox.dataset.name,
+            color: checkbox.dataset.color
+        }));
+
+        if (selectedCalendars.length === 0) {
+            showToast('최소 1개 이상의 캘린더를 선택해주세요', 'warning');
+            return;
+        }
+
+        // 선택 저장
+        await fetchApi('/api/calendar/select', {
+            method: 'POST',
+            body: JSON.stringify({
+                calendars: selectedCalendars
+            })
+        });
+
+        showToast(`${selectedCalendars.length}개 캘린더 선택이 저장되었습니다`, 'success');
+
+    } catch (error) {
+        showToast('캘린더 선택 저장에 실패했습니다', 'error');
     }
 }

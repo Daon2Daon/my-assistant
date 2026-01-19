@@ -72,14 +72,6 @@
                         <small class="text-muted">매일 지정된 시간에 오늘 일정을 알려드립니다</small>
                     </div>
 
-                    <!-- 캘린더 선택 (향후 확장) -->
-                    <div class="col-md-6 mb-3">
-                        <label for="calendar-select" class="form-label fw-bold">캘린더</label>
-                        <select class="form-select" id="calendar-select" disabled>
-                            <option value="primary" selected>Primary Calendar</option>
-                        </select>
-                        <small class="text-muted">현재는 Primary 캘린더만 지원합니다</small>
-                    </div>
                 </div>
 
                 <div class="row">
@@ -88,6 +80,34 @@
                             <i class="bi bi-save me-1"></i>설정 저장
                         </button>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 캘린더 선택 섹션 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-calendar3 me-2"></i>캘린더 선택</h5>
+                <button class="btn btn-sm btn-outline-primary" onclick="loadCalendarList()">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+            <div class="card-body">
+                <div id="calendar-list-container">
+                    <div class="text-center text-muted py-3">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        <span class="ms-2">캘린더 목록 로딩 중...</span>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <button class="btn btn-success" onclick="saveCalendarSelection()">
+                        <i class="bi bi-check-lg me-1"></i>선택 저장
+                    </button>
+                    <small class="text-muted ms-3">선택한 캘린더의 일정이 알림에 포함됩니다</small>
                 </div>
             </div>
         </div>

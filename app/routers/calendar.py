@@ -3,15 +3,16 @@ Calendar API 라우터
 캘린더 알림 전용 API 엔드포인트
 """
 
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from datetime import datetime
+import json
 
 from app.database import get_db
-from app.crud import get_or_create_user, get_setting_by_category, get_logs
+from app.crud import get_or_create_user, get_setting_by_category, get_logs, create_setting, update_setting
 from app.services.bots.calendar_bot import calendar_bot
 from app.services.auth.google_auth import google_auth_service
 from app.services.scheduler import scheduler_service
@@ -29,6 +30,20 @@ class CalendarStatusResponse(BaseModel):
     next_run_time: Optional[str] = None
     last_run_time: Optional[str] = None
     last_status: Optional[str] = None
+
+
+class CalendarInfo(BaseModel):
+    """캘린더 정보"""
+
+    id: str
+    name: str
+    color: str
+
+
+class CalendarSelectRequest(BaseModel):
+    """캘린더 선택 요청"""
+
+    calendars: List[CalendarInfo]
 
 
 @router.get("/status")
@@ -212,3 +227,174 @@ async def get_calendar_logs(limit: int = 20, db: Session = Depends(get_db)):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/list")
+async def get_calendar_list(db: Session = Depends(get_db)):
+    """
+    사용자의 캘린더 목록 조회
+
+    Returns:
+        캘린더 목록 (id, summary, description, backgroundColor, primary, accessRole)
+    """
+    try:
+        user = get_or_create_user(db)
+
+        # Google 토큰 확인
+        if not user.google_access_token or not user.google_refresh_token:
+            raise HTTPException(
+                status_code=400,
+                detail="Google 계정 연동이 필요합니다"
+            )
+
+        # Google Credentials 생성
+        try:
+            credentials = google_auth_service.create_credentials(
+                access_token=user.google_access_token,
+                refresh_token=user.google_refresh_token,
+                token_expiry=user.google_token_expiry,
+            )
+
+            # 토큰 만료 시 갱신
+            if credentials.expired and credentials.refresh_token:
+                credentials = google_auth_service.refresh_credentials(credentials)
+                # 갱신된 토큰 DB 저장
+                from app.crud import update_user_google_tokens
+
+                update_user_google_tokens(
+                    db,
+                    user.user_id,
+                    credentials.token,
+                    credentials.refresh_token,
+                    credentials.expiry,
+                )
+
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Google 인증 실패: {str(e)}"
+            )
+
+        # 캘린더 목록 조회
+        calendars = google_auth_service.get_calendar_list(credentials)
+
+        return JSONResponse(
+            content={
+                "calendars": calendars,
+                "count": len(calendars),
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/select")
+async def select_calendars(
+    request: CalendarSelectRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    알림에 포함할 캘린더 선택 저장
+
+    Args:
+        request: 선택된 캘린더 목록
+
+    Returns:
+        저장 결과
+    """
+    try:
+        user = get_or_create_user(db)
+        setting = get_setting_by_category(db, user.user_id, "calendar")
+
+        # 선택된 캘린더를 JSON으로 변환
+        config_data = {
+            "selected_calendars": [
+                {
+                    "id": cal.id,
+                    "name": cal.name,
+                    "color": cal.color,
+                }
+                for cal in request.calendars
+            ]
+        }
+        config_json = json.dumps(config_data, ensure_ascii=False)
+
+        # 설정 업데이트 또는 생성
+        if setting:
+            update_setting(
+                db,
+                setting.setting_id,
+                config_json=config_json
+            )
+        else:
+            create_setting(
+                db,
+                user.user_id,
+                category="calendar",
+                notification_time="08:00",
+                config_json=config_json
+            )
+
+        return JSONResponse(
+            content={
+                "message": "캘린더 선택이 저장되었습니다",
+                "selected_count": len(request.calendars),
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"캘린더 선택 저장 실패: {str(e)}"
+        )
+
+
+@router.get("/selected")
+async def get_selected_calendars(db: Session = Depends(get_db)):
+    """
+    저장된 캘린더 선택 목록 조회
+
+    Returns:
+        선택된 캘린더 목록
+    """
+    try:
+        user = get_or_create_user(db)
+        setting = get_setting_by_category(db, user.user_id, "calendar")
+
+        # 설정이 없거나 config_json이 없으면 빈 목록 반환
+        if not setting or not setting.config_json:
+            return JSONResponse(
+                content={
+                    "calendars": [],
+                    "count": 0,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
+
+        # JSON 파싱
+        config_data = json.loads(setting.config_json)
+        selected_calendars = config_data.get("selected_calendars", [])
+
+        return JSONResponse(
+            content={
+                "calendars": selected_calendars,
+                "count": len(selected_calendars),
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"캘린더 설정 파싱 실패: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"캘린더 선택 조회 실패: {str(e)}"
+        )

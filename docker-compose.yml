@@ -11,29 +11,15 @@ services:
     volumes:
       # 데이터 영속성 (SQLite DB)
       - my-assistant-data:/app/data
+    env_file:
+      - .env
     environment:
-      # App
-      - DEBUG=${DEBUG:-False}
-      - SECRET_KEY=${SECRET_KEY}
+      # 기본값만 environment에서 설정 (.env에서 오버라이드 가능)
       - TZ=Asia/Seoul
-      # Database
+      - DEBUG=${DEBUG:-False}
       - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/assistant.db}
-      # Admin Login
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
-      - SESSION_SECRET_KEY=${SESSION_SECRET_KEY}
       - SESSION_MAX_AGE=${SESSION_MAX_AGE:-86400}
-      # Kakao API
-      - KAKAO_REST_API_KEY=${KAKAO_REST_API_KEY}
-      - KAKAO_REDIRECT_URI=${KAKAO_REDIRECT_URI}
-      # Google API
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI}
-      # OpenWeatherMap
-      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
-      # Telegram Bot
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
     healthcheck:

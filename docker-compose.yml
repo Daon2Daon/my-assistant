@@ -6,6 +6,8 @@ services:
     image: ghcr.io/daon2daon/my-assistant:latest
     container_name: my-assistant
     restart: always
+    tty: true
+    stdin_open: true
     ports:
       - "${APP_PORT:-8000}:8000"
     volumes:

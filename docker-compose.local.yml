@@ -8,6 +8,8 @@ services:
       dockerfile: Dockerfile
     container_name: my-assistant-local
     restart: unless-stopped
+    tty: true
+    stdin_open: true
     ports:
       - "${APP_PORT:-8000}:8000"
     volumes:

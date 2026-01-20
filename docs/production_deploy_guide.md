@@ -206,6 +206,36 @@ ADMIN_PASSWORD=MyP@ss!2024
 
 ## 문제 해결
 
+### Docker Desktop 터미널 접속 오류
+
+**증상**: Docker Desktop GUI에서 "연결하지 못했습니다. teletype 터미널이 없습니다." 에러 발생
+
+**원인**: `docker-compose.yml`에 `tty: true` 설정이 없음
+
+**해결 방법 1: CLI로 직접 접속 (권장)**
+
+```bash
+# 프로덕션 서버에 SSH 접속 후
+cd /path/to/my-assistant
+
+# 컨테이너 내부로 직접 접속
+docker compose exec my-assistant bash
+
+# 또는 한 줄 명령어로 환경변수 확인
+docker compose exec my-assistant printenv | grep ADMIN
+```
+
+**해결 방법 2: docker-compose.yml 수정**
+
+최신 버전의 `docker-compose.yml`은 이미 `tty: true`, `stdin_open: true`가 추가되어 있습니다.
+
+업데이트 후 컨테이너 재시작:
+```bash
+git pull origin main
+docker compose down
+docker compose up -d
+```
+
 ### 🚨 긴급 트러블슈팅 ('!' 문자 문제)
 
 **증상**: 로컬에서는 로그인 성공, 프로덕션에서는 로그인 실패, 비밀번호에 '!' 포함

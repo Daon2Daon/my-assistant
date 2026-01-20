@@ -5,6 +5,8 @@ PriceAlert 모델
 
 from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey
 from sqlalchemy.sql import func
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from app.database import Base
 
 
@@ -31,11 +33,11 @@ class PriceAlert(Base):
 
     # 상태
     is_triggered = Column(Boolean, default=False)
-    triggered_at = Column(DateTime, nullable=True)
+    triggered_at = Column(DateTime(timezone=True), nullable=True)
     is_active = Column(Boolean, default=True)
 
     # 메타데이터
-    created_at = Column(DateTime, default=func.now())
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(ZoneInfo("Asia/Seoul")))
 
     def __repr__(self):
         return f"<PriceAlert(alert_id={self.alert_id}, watchlist_id={self.watchlist_id}, alert_type={self.alert_type})>"

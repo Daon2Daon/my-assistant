@@ -40,19 +40,19 @@
         <h5 class="mb-3"><i class="bi bi-grid-3x3-gap me-2"></i>모듈 요약</h5>
     </div>
 
-    <!-- Weather Module -->
+    <!-- Reminders Module -->
     <div class="col-md-6 col-lg-3 mb-3">
-        <a href="/weather" class="text-decoration-none">
+        <a href="/reminders" class="text-decoration-none">
             <div class="card h-100 hover-shadow">
                 <div class="card-body">
                     <div class="d-flex align-items-center mb-2">
-                        <i class="bi bi-cloud-sun fs-3 text-info me-2"></i>
-                        <h6 class="card-title mb-0">Weather</h6>
+                        <i class="bi bi-bell fs-3 text-warning me-2"></i>
+                        <h6 class="card-title mb-0">Reminders</h6>
                     </div>
                     <div class="mt-2">
-                        <span id="weather-active-status" class="badge bg-secondary">Loading...</span>
+                        <span id="reminders-count" class="badge bg-secondary">Loading...</span>
                     </div>
-                    <small id="weather-next-run" class="text-muted d-block mt-2">다음 발송: -</small>
+                    <small class="text-muted d-block mt-2">대기 중인 메모</small>
                 </div>
             </div>
         </a>
@@ -94,19 +94,19 @@
         </a>
     </div>
 
-    <!-- Reminders Module -->
+    <!-- Weather Module -->
     <div class="col-md-6 col-lg-3 mb-3">
-        <a href="/reminders" class="text-decoration-none">
+        <a href="/weather" class="text-decoration-none">
             <div class="card h-100 hover-shadow">
                 <div class="card-body">
                     <div class="d-flex align-items-center mb-2">
-                        <i class="bi bi-bell fs-3 text-warning me-2"></i>
-                        <h6 class="card-title mb-0">Reminders</h6>
+                        <i class="bi bi-cloud-sun fs-3 text-info me-2"></i>
+                        <h6 class="card-title mb-0">Weather</h6>
                     </div>
                     <div class="mt-2">
-                        <span id="reminders-count" class="badge bg-secondary">Loading...</span>
+                        <span id="weather-active-status" class="badge bg-secondary">Loading...</span>
                     </div>
-                    <small class="text-muted d-block mt-2">대기 중인 메모</small>
+                    <small id="weather-next-run" class="text-muted d-block mt-2">다음 발송: -</small>
                 </div>
             </div>
         </a>

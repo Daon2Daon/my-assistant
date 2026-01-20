@@ -698,12 +698,12 @@ async function loadPriceAlerts() {
                                 <strong>목표 값:</strong> ${targetValue}
                             </p>
                             <p class="mb-2 small text-muted">
-                                등록: ${new Date(alert.created_at).toLocaleString('ko-KR')}
+                                등록: ${formatDateTime(alert.created_at)}
                             </p>
                             ${isTriggered ? `
                                 <p class="mb-2 small text-success">
                                     <i class="bi bi-check-circle me-1"></i>
-                                    발동: ${new Date(alert.triggered_at).toLocaleString('ko-KR')}
+                                    발동: ${formatDateTime(alert.triggered_at)}
                                 </p>
                             ` : ''}
                             <button class="btn btn-sm btn-outline-danger" onclick="deletePriceAlert(${alert.alert_id})">

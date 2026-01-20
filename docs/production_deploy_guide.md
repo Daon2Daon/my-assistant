@@ -46,13 +46,50 @@ ADMIN_PASSWORD=secret#comment  # ❌ '#' 이후는 주석으로 처리됨
 
 ### 특수문자별 주의사항
 
-| 특수문자 | 주의사항 | 예시 |
-|----------|----------|------|
-| `#` | 주석으로 인식됨 | `P@ssw0rd#123` → `P@ssw0rd` (뒤 잘림) |
-| `$` | 변수 치환 시도 | `Pass$word` → 오동작 가능 |
-| `!` | Bash 히스토리 확장 | `Pass!123` → 오동작 가능 |
-| `"` `'` | 따옴표는 사용하지 말 것 | 값에 포함됨 |
-| 공백 | 공백 포함 불가 | 공백 없이 작성 |
+| 특수문자 | 주의사항 | 해결 | 예시 |
+|----------|----------|------|------|
+| `#` | 주석으로 인식됨 | 사용 자제 | `P@ssw0rd#123` → `P@ssw0rd` (뒤 잘림) |
+| `$` | 변수 치환 시도 | env_file 사용 | `Pass$word` → env_file로 안전 |
+| `!` | **Bash 히스토리 확장** | **env_file 사용** | `Pass!123` → **env_file로 안전** |
+| `"` `'` | 따옴표는 사용하지 말 것 | 절대 사용 안 함 | 값에 포함됨 |
+| 공백 | 공백 포함 불가 | 공백 없이 작성 | 공백 없이 작성 |
+
+### ⚠️ '!' 문자 특별 주의사항
+
+**문제**: `!` 문자는 Bash의 히스토리 확장(history expansion) 기능을 트리거합니다.
+
+**증상**:
+```bash
+# .env 파일
+ADMIN_PASSWORD=MyP@ss!2024
+
+# 로컬에서는 동작하지만, 프로덕션에서 로그인 실패
+```
+
+**해결 방법 1: docker-compose.yml 수정 (권장, 이미 적용됨)**
+
+업데이트된 `docker-compose.yml`은 `environment` 섹션에서 변수 치환을 제거했습니다:
+
+```yaml
+# 변경 후 (안전)
+env_file:
+  - .env
+environment:
+  - TZ=Asia/Seoul  # 고정값만
+```
+
+**해결 방법 2: 비밀번호 변경 (대안)**
+
+만약 여전히 문제가 발생한다면, `!` 문자를 다른 특수문자로 변경하세요:
+
+```bash
+# 대체 가능한 안전한 특수문자
+@ % & * ( ) - _ + = [ ] { } ; : , . / ?
+
+# 예시
+ADMIN_PASSWORD=MyP@ss*2024  # ! → * 변경
+ADMIN_PASSWORD=MyP@ss_2024  # ! → _ 변경
+```
 
 ### 권장 비밀번호 형식
 
@@ -128,7 +165,34 @@ docker compose up -d
 docker compose logs -f my-assistant
 ```
 
-### 4. 로그인 테스트
+### 4. 환경변수 검증 (중요!)
+
+컨테이너 시작 후 반드시 환경변수가 올바르게 설정되었는지 확인하세요:
+
+```bash
+# 1. 비밀번호 길이 확인
+docker compose exec my-assistant python -c "import os; pwd=os.getenv('ADMIN_PASSWORD'); print(f'Password length: {len(pwd) if pwd else 0}')"
+
+# 2. 비밀번호에 '!' 문자 포함 여부 확인
+docker compose exec my-assistant python -c "import os; pwd=os.getenv('ADMIN_PASSWORD'); print(f'Contains !: {chr(33) in pwd if pwd else False}')"
+
+# 3. 비밀번호 앞 3글자 확인 (디버깅용)
+docker compose exec my-assistant python -c "import os; pwd=os.getenv('ADMIN_PASSWORD'); print(f'First 3 chars: {pwd[:3] if pwd and len(pwd) >= 3 else pwd}')"
+
+# 4. 모든 환경변수 확인
+docker compose exec my-assistant printenv | grep ADMIN
+```
+
+**예상 출력**:
+```
+Password length: 16
+Contains !: True
+First 3 chars: MyP
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=MyP@ss!2024
+```
+
+### 5. 로그인 테스트
 
 1. 브라우저에서 `https://yourdomain.com/login` 접속
 2. .env 파일에 설정한 `ADMIN_USERNAME`과 `ADMIN_PASSWORD`로 로그인
@@ -141,6 +205,67 @@ docker compose logs -f my-assistant
 ---
 
 ## 문제 해결
+
+### 🚨 긴급 트러블슈팅 ('!' 문자 문제)
+
+**증상**: 로컬에서는 로그인 성공, 프로덕션에서는 로그인 실패, 비밀번호에 '!' 포함
+
+**즉시 실행할 명령어**:
+
+```bash
+# 서버에서 실행
+cd /path/to/my-assistant
+
+# 1. 현재 컨테이너의 비밀번호 확인
+docker compose exec my-assistant python -c "import os; pwd=os.getenv('ADMIN_PASSWORD'); print(f'Has !: {chr(33) in pwd if pwd else False}'); print(f'Len: {len(pwd) if pwd else 0}')"
+
+# 2. .env 파일 확인
+cat .env | grep ADMIN_PASSWORD
+
+# 3. 비교
+# - .env 파일의 비밀번호 길이와 컨테이너 내부 길이가 다르면 → 변수 치환 문제
+# - '!' 문자가 사라졌으면 → Bash 히스토리 확장 문제
+```
+
+**즉시 해결 방법**:
+
+1. **최신 docker-compose.yml로 업데이트**:
+   ```bash
+   # Git에서 최신 버전 받기
+   git pull origin main
+
+   # 또는 수동으로 수정
+   nano docker-compose.yml
+   ```
+
+   확인할 내용:
+   ```yaml
+   env_file:
+     - .env
+   environment:
+     - TZ=Asia/Seoul  # 이것만 있어야 함!
+   ```
+
+2. **컨테이너 재시작**:
+   ```bash
+   docker compose down
+   docker compose up -d
+   ```
+
+3. **검증**:
+   ```bash
+   docker compose exec my-assistant python -c "import os; pwd=os.getenv('ADMIN_PASSWORD'); print(f'Contains !: {chr(33) in pwd if pwd else False}')"
+   # 출력: Contains !: True (이렇게 나와야 정상)
+   ```
+
+4. **여전히 실패한다면 - 비밀번호 임시 변경**:
+   ```bash
+   # .env 파일에서 '!'를 다른 문자로 변경
+   nano .env
+   # ADMIN_PASSWORD=MyP@ss*2024  (! → * 변경)
+
+   docker compose restart
+   ```
 
 ### 로그인 실패 시 디버깅
 

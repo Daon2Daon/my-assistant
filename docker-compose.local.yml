@@ -18,15 +18,8 @@ services:
     env_file:
       - .env
     environment:
-      # 기본값만 environment에서 설정 (.env에서 오버라이드 가능)
+      # 고정값만 설정 (변수 치환 없음)
       - TZ=Asia/Seoul
-      - DEBUG=${DEBUG:-True}
-      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
-      - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/assistant.db}
-      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
-      - SESSION_MAX_AGE=${SESSION_MAX_AGE:-86400}
-      - KAKAO_REDIRECT_URI=${KAKAO_REDIRECT_URI:-http://localhost:8000/auth/kakao/callback}
-      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-http://localhost:8000/auth/google/callback}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s

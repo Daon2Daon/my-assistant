@@ -3,7 +3,7 @@ Finance API 라우터
 금융 알림 전용 API 엔드포인트
 """
 
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, List
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -22,6 +22,7 @@ from app.crud import (
     create_watchlist,
     update_watchlist,
     delete_watchlist,
+    update_watchlist_orders,
     get_price_alerts,
     get_price_alert,
     create_price_alert,
@@ -504,6 +505,56 @@ async def delete_user_watchlist(watchlist_id: int, db: Session = Depends(get_db)
             )
         else:
             raise HTTPException(status_code=500, detail="종목 삭제에 실패했습니다")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class WatchlistReorderRequest(BaseModel):
+    """관심 종목 순서 변경 요청"""
+
+    orders: List[Dict[str, int]]  # [{"watchlist_id": 1, "display_order": 0}, ...]
+
+
+@router.put("/watchlists/reorder")
+async def reorder_watchlist(
+    request: WatchlistReorderRequest, db: Session = Depends(get_db)
+):
+    """
+    관심 종목 순서 일괄 변경
+
+    Args:
+        request: 순서 변경 정보 리스트
+
+    Returns:
+        순서 변경 결과
+    """
+    try:
+        print(f"📋 순서 변경 요청 받음: {request.orders}")
+        user = get_or_create_user(db)
+
+        # 모든 watchlist_id가 현재 사용자의 것인지 확인
+        for item in request.orders:
+            watchlist_id = item.get("watchlist_id")
+            if watchlist_id:
+                watchlist = get_watchlist(db, watchlist_id)
+                if not watchlist or watchlist.user_id != user.user_id:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"권한이 없습니다: watchlist_id={watchlist_id}",
+                    )
+
+        # 순서 업데이트
+        success = update_watchlist_orders(db, request.orders)
+
+        if success:
+            return JSONResponse(
+                content={"message": "순서가 변경되었습니다"}, status_code=200
+            )
+        else:
+            raise HTTPException(status_code=500, detail="순서 변경에 실패했습니다")
 
     except HTTPException:
         raise

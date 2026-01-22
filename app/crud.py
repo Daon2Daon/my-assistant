@@ -333,7 +333,7 @@ def get_watchlists(db: Session, user_id: int, is_active: Optional[bool] = True) 
     query = db.query(Watchlist).filter(Watchlist.user_id == user_id)
     if is_active is not None:
         query = query.filter(Watchlist.is_active == is_active)
-    return query.order_by(Watchlist.created_at.desc()).all()
+    return query.order_by(Watchlist.display_order.asc(), Watchlist.created_at.desc()).all()
 
 
 def get_watchlist(db: Session, watchlist_id: int) -> Optional[Watchlist]:
@@ -462,6 +462,35 @@ def delete_watchlist(db: Session, watchlist_id: int) -> bool:
         db.commit()
         return True
     return False
+
+
+def update_watchlist_orders(db: Session, order_data: List[dict]) -> bool:
+    """
+    관심 종목 순서 일괄 업데이트
+
+    Args:
+        db: 데이터베이스 세션
+        order_data: [{"watchlist_id": 1, "display_order": 0}, ...] 형식의 리스트
+
+    Returns:
+        bool: 업데이트 성공 여부
+    """
+    try:
+        for item in order_data:
+            watchlist_id = item.get("watchlist_id")
+            display_order = item.get("display_order")
+
+            if watchlist_id is not None and display_order is not None:
+                watchlist = get_watchlist(db, watchlist_id)
+                if watchlist:
+                    watchlist.display_order = display_order
+
+        db.commit()
+        return True
+    except Exception as e:
+        db.rollback()
+        print(f"❌ 관심 종목 순서 업데이트 실패: {e}")
+        return False
 
 
 # ============================================================

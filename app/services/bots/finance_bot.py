@@ -329,7 +329,8 @@ class FinanceBot:
             elif market == "KR":
                 # 한국 종목명 조회
                 name = stock.get_market_ticker_name(ticker)
-                return name is not None and name != ""
+                # 문자열이고 비어있지 않으면 유효
+                return isinstance(name, str) and len(name) > 0
 
             return False
 
@@ -873,7 +874,7 @@ class FinanceBot:
                         )
                         continue
 
-                    current_price = quote.get("current_price")
+                    current_price = quote.get("price")
                     if current_price is None:
                         continue
 

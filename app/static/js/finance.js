@@ -369,13 +369,16 @@ async function loadUSWatchlist() {
             return;
         }
 
-        let html = '<div class="row">';
+        let html = '<div class="row" id="us-sortable-list">';
         for (const stock of usStocks) {
             html += renderWatchlistCard(stock);
         }
         html += '</div>';
 
         container.innerHTML = html;
+
+        // SortableJS 초기화
+        initializeSortable('us-sortable-list', 'US');
 
     } catch (error) {
         container.innerHTML = '<p class="text-danger text-center py-3">종목 목록을 불러오는데 실패했습니다</p>';
@@ -402,13 +405,16 @@ async function loadKRWatchlist() {
             return;
         }
 
-        let html = '<div class="row">';
+        let html = '<div class="row" id="kr-sortable-list">';
         for (const stock of krStocks) {
             html += renderWatchlistCard(stock);
         }
         html += '</div>';
 
         container.innerHTML = html;
+
+        // SortableJS 초기화
+        initializeSortable('kr-sortable-list', 'KR');
 
     } catch (error) {
         container.innerHTML = '<p class="text-danger text-center py-3">종목 목록을 불러오는데 실패했습니다</p>';
@@ -422,13 +428,16 @@ function renderWatchlistCard(stock) {
         : '<span class="badge bg-danger">KR</span>';
 
     return `
-        <div class="col-md-6 col-lg-4 mb-3">
+        <div class="col-md-6 col-lg-4 mb-3 watchlist-item" data-id="${stock.watchlist_id}">
             <div class="card h-100">
                 <div class="card-body">
                     <div class="d-flex justify-content-between align-items-start mb-2">
-                        <div>
-                            <h6 class="mb-0">${stock.ticker}</h6>
-                            <small class="text-muted">${stock.name || stock.ticker}</small>
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-grip-vertical text-muted me-2 drag-handle" style="cursor: grab;"></i>
+                            <div>
+                                <h6 class="mb-0">${stock.ticker}</h6>
+                                <small class="text-muted">${stock.name || stock.ticker}</small>
+                            </div>
                         </div>
                         ${marketBadge}
                     </div>
@@ -849,5 +858,75 @@ async function deletePriceAlert(alertId) {
 
     } catch (error) {
         showToast(`가격 알림 삭제 실패: ${error.message}`, 'error');
+    }
+}
+
+// ========================================
+// Drag & Drop 순서 변경 기능
+// ========================================
+
+/**
+ * SortableJS 초기화
+ */
+function initializeSortable(listId, market) {
+    const listElement = document.getElementById(listId);
+
+    if (!listElement) {
+        return;
+    }
+
+    new Sortable(listElement, {
+        animation: 150,
+        handle: '.drag-handle',
+        ghostClass: 'sortable-ghost',
+        chosenClass: 'sortable-chosen',
+        dragClass: 'sortable-drag',
+        onEnd: function(evt) {
+            // 드래그 종료 시 순서 저장
+            saveWatchlistOrder(listId, market);
+        }
+    });
+}
+
+/**
+ * 관심 종목 순서 저장
+ */
+async function saveWatchlistOrder(listId, market) {
+    const listElement = document.getElementById(listId);
+    const items = listElement.querySelectorAll('.watchlist-item');
+
+    // 순서 데이터 생성
+    const orders = [];
+    items.forEach((item, index) => {
+        const watchlistId = parseInt(item.getAttribute('data-id'));
+        orders.push({
+            watchlist_id: watchlistId,
+            display_order: index
+        });
+    });
+
+    const requestData = { orders: orders };
+    console.log('순서 저장 요청:', requestData);
+
+    try {
+        const response = await fetchApi('/api/finance/watchlists/reorder', {
+            method: 'PUT',
+            body: JSON.stringify(requestData)
+        });
+
+        console.log('순서 저장 응답:', response);
+        showToast('순서가 저장되었습니다', 'success');
+
+    } catch (error) {
+        console.error('순서 저장 실패:', error);
+        const errorMsg = error.message || error.toString() || '알 수 없는 오류';
+        showToast(`순서 저장 실패: ${errorMsg}`, 'error');
+
+        // 실패 시 목록 다시 로드
+        if (market === 'US') {
+            loadUSWatchlist();
+        } else {
+            loadKRWatchlist();
+        }
     }
 }

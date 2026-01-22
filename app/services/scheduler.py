@@ -357,10 +357,15 @@ class SchedulerService:
         """
         Finance 알림 Job 설정
         설정된 시간에 미국/한국 증시 알림 발송 Job 등록
+        가격 알림 체크 Job 등록 (5분마다)
         """
         from app.database import SessionLocal
         from app.crud import get_setting_by_category, get_or_create_user
-        from app.services.bots.finance_bot import send_us_market_notification_sync, send_kr_market_notification_sync
+        from app.services.bots.finance_bot import (
+            send_us_market_notification_sync,
+            send_kr_market_notification_sync,
+            check_price_alerts_sync,
+        )
 
         db = SessionLocal()
         try:
@@ -411,6 +416,17 @@ class SchedulerService:
             except Exception as e:
                 print(f"❌ KR Market Job 등록 실패: {e}")
 
+            # 가격 알림 체크 Job 등록 (5분마다)
+            try:
+                self.add_interval_job(
+                    func=check_price_alerts_sync,
+                    job_id="finance_price_alert_check",
+                    minutes=5,
+                )
+                print(f"✅ 가격 알림 체크 Job 등록: 5분마다 실행")
+            except Exception as e:
+                print(f"❌ 가격 알림 체크 Job 등록 실패: {e}")
+
         except Exception as e:
             print(f"❌ Finance Job 설정 실패: {e}")
         finally:
@@ -425,6 +441,7 @@ class SchedulerService:
             # 기존 Finance Job 제거
             self.remove_job("finance_us_daily")
             self.remove_job("finance_kr_daily")
+            self.remove_job("finance_price_alert_check")
 
             # 새로 등록
             self.setup_finance_jobs()

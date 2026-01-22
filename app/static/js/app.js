@@ -54,10 +54,23 @@ async function fetchApi(url, options = {}) {
             ...options
         });
 
-        const data = await response.json();
+        let data;
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+            data = await response.json();
+        } else {
+            const text = await response.text();
+            data = { detail: text || 'Unknown error' };
+        }
 
         if (!response.ok) {
-            throw new Error(data.detail || 'API Error');
+            const errorMsg = typeof data.detail === 'string'
+                ? data.detail
+                : JSON.stringify(data.detail || data);
+            const error = new Error(errorMsg);
+            error.status = response.status;
+            error.data = data;
+            throw error;
         }
 
         return data;

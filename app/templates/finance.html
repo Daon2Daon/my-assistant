@@ -292,5 +292,6 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="/static/js/finance.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<script src="/static/js/finance.js?v={{ range(1, 10000) | random }}"></script>
 {% endblock %}

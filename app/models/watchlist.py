@@ -28,6 +28,9 @@ class Watchlist(Base):
     purchase_price = Column(Float, nullable=True)
     purchase_quantity = Column(Integer, nullable=True)
 
+    # 표시 순서
+    display_order = Column(Integer, nullable=True, default=0)
+
     # 메타데이터
     created_at = Column(DateTime, default=func.now())
     is_active = Column(Boolean, default=True)

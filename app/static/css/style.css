@@ -295,3 +295,40 @@ main {
         font-size: 1.5rem;
     }
 }
+
+/* ============================================================
+   Drag & Drop Sortable Styles
+   ============================================================ */
+
+/* 드래그 중인 요소 (고스트) */
+.sortable-ghost {
+    opacity: 0.4;
+    background-color: #f8f9fa;
+}
+
+/* 선택된 요소 */
+.sortable-chosen {
+    cursor: grabbing !important;
+}
+
+/* 드래그 되는 요소 */
+.sortable-drag {
+    opacity: 0.8;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    transform: rotate(2deg);
+}
+
+/* 드래그 핸들 */
+.drag-handle {
+    cursor: grab;
+    user-select: none;
+    transition: color 0.2s;
+}
+
+.drag-handle:hover {
+    color: #0d6efd !important;
+}
+
+.drag-handle:active {
+    cursor: grabbing;
+}

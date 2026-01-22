@@ -13,7 +13,6 @@ from app.middleware import AuthMiddleware
 from app.routers import auth, scheduler, reminders, pages, settings as settings_router, logs, weather, finance, calendar
 from app.services.scheduler import scheduler_service
 from app.services.bots.memo_bot import memo_bot
-from app.services.bots.finance_bot import check_price_alerts_sync
 
 # FastAPI 앱 생성
 app = FastAPI(
@@ -79,17 +78,6 @@ async def startup_event():
 
     # 스케줄러 시작
     scheduler_service.start()
-
-    # 가격 알림 체크 Job 등록 (5분마다)
-    try:
-        scheduler_service.add_interval_job(
-            func=check_price_alerts_sync,
-            job_id="price_alerts_check",
-            minutes=5,
-        )
-        print("✅ 가격 알림 체크 Job 등록 완료 (5분 간격)")
-    except Exception as e:
-        print(f"⚠️  가격 알림 체크 Job 등록 실패: {e}")
 
     # Weather 알림 Job 등록
     try:

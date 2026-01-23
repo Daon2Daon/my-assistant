@@ -30,6 +30,7 @@ class PriceAlert(Base):
     )  # TARGET_HIGH / TARGET_LOW / PERCENT_CHANGE
     target_price = Column(Float, nullable=True)
     target_percent = Column(Float, nullable=True)
+    reference_price = Column(Float, nullable=True)  # 변동률 계산 기준가 (PERCENT_CHANGE용)
 
     # 상태
     is_triggered = Column(Boolean, default=False)

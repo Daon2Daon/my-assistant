@@ -557,6 +557,7 @@ def create_price_alert(
     alert_type: str,
     target_price: Optional[float] = None,
     target_percent: Optional[float] = None,
+    reference_price: Optional[float] = None,
 ) -> PriceAlert:
     """
     가격 알림 등록
@@ -568,6 +569,7 @@ def create_price_alert(
         alert_type: 알림 타입 (TARGET_HIGH / TARGET_LOW / PERCENT_CHANGE)
         target_price: 목표 가격
         target_percent: 목표 변동률
+        reference_price: 변동률 계산 기준가 (PERCENT_CHANGE용)
 
     Returns:
         PriceAlert: 생성된 가격 알림 객체
@@ -578,6 +580,7 @@ def create_price_alert(
         alert_type=alert_type,
         target_price=target_price,
         target_percent=target_percent,
+        reference_price=reference_price,
         is_triggered=False,
         is_active=True,
     )
@@ -607,6 +610,28 @@ def update_alert_triggered(
         if is_triggered:
             alert.triggered_at = datetime.now()
             alert.is_active = False  # 발동 후 비활성화
+        db.commit()
+        db.refresh(alert)
+    return alert
+
+
+def update_alert_reference_price(
+    db: Session, alert_id: int, new_reference_price: float
+) -> Optional[PriceAlert]:
+    """
+    가격 알림의 기준가 업데이트 (PERCENT_CHANGE용)
+
+    Args:
+        db: 데이터베이스 세션
+        alert_id: 가격 알림 ID
+        new_reference_price: 새로운 기준가
+
+    Returns:
+        Optional[PriceAlert]: 업데이트된 가격 알림 객체 또는 None
+    """
+    alert = get_price_alert(db, alert_id)
+    if alert:
+        alert.reference_price = new_reference_price
         db.commit()
         db.refresh(alert)
     return alert

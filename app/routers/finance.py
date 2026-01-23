@@ -27,6 +27,7 @@ from app.crud import (
     get_price_alert,
     create_price_alert,
     update_alert_triggered,
+    update_alert_reference_price,
     delete_price_alert,
 )
 from app.services.bots.finance_bot import finance_bot
@@ -737,6 +738,19 @@ async def create_alert_api(
             if request.target_percent is None:
                 raise HTTPException(status_code=400, detail="목표 변동률을 입력해주세요")
 
+        # reference_price 설정 (PERCENT_CHANGE 타입일 때만)
+        reference_price = None
+        if request.alert_type == "PERCENT_CHANGE":
+            # 현재가 조회
+            quote = finance_bot.get_stock_quote(watchlist.ticker, watchlist.market)
+            if quote and quote.get("price"):
+                reference_price = quote.get("price")
+                print(f"✅ 기준가 설정: {watchlist.ticker} = {reference_price}")
+            else:
+                raise HTTPException(
+                    status_code=500, detail="현재가를 조회할 수 없습니다"
+                )
+
         # 가격 알림 생성
         alert = create_price_alert(
             db=db,
@@ -745,6 +759,7 @@ async def create_alert_api(
             alert_type=request.alert_type,
             target_price=request.target_price,
             target_percent=request.target_percent,
+            reference_price=reference_price,
         )
 
         return JSONResponse(

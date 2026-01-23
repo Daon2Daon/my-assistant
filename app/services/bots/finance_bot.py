@@ -886,34 +886,90 @@ class FinanceBot:
                         # 목표가 도달 (상승)
                         if current_price >= alert.target_price:
                             should_alert = True
-                            alert_message = (
-                                f"[가격 알림] {watchlist.ticker}\n"
-                                f"목표가 도달!\n"
-                                f"현재가: ${current_price:,.2f}\n"
-                                f"목표가: ${alert.target_price:,.2f}"
-                            )
+                            # 종목 표시 형식 (티커와 이름)
+                            stock_display = f"{watchlist.ticker} ({watchlist.name})" if watchlist.name else watchlist.ticker
+                            # 통화 단위 (시장별 구분)
+                            if watchlist.market == "KR":
+                                alert_message = (
+                                    f"[가격 알림] {stock_display}\n"
+                                    f"목표가 도달!\n"
+                                    f"현재가: {current_price:,.0f}원\n"
+                                    f"목표가: {alert.target_price:,.0f}원"
+                                )
+                            else:
+                                alert_message = (
+                                    f"[가격 알림] {stock_display}\n"
+                                    f"목표가 도달!\n"
+                                    f"현재가: ${current_price:,.2f}\n"
+                                    f"목표가: ${alert.target_price:,.2f}"
+                                )
 
                     elif alert.alert_type == "TARGET_LOW":
                         # 목표가 도달 (하락)
                         if current_price <= alert.target_price:
                             should_alert = True
-                            alert_message = (
-                                f"[가격 알림] {watchlist.ticker}\n"
-                                f"손절가 도달!\n"
-                                f"현재가: ${current_price:,.2f}\n"
-                                f"손절가: ${alert.target_price:,.2f}"
-                            )
+                            # 종목 표시 형식 (티커와 이름)
+                            stock_display = f"{watchlist.ticker} ({watchlist.name})" if watchlist.name else watchlist.ticker
+                            # 통화 단위 (시장별 구분)
+                            if watchlist.market == "KR":
+                                alert_message = (
+                                    f"[가격 알림] {stock_display}\n"
+                                    f"손절가 도달!\n"
+                                    f"현재가: {current_price:,.0f}원\n"
+                                    f"손절가: {alert.target_price:,.0f}원"
+                                )
+                            else:
+                                alert_message = (
+                                    f"[가격 알림] {stock_display}\n"
+                                    f"손절가 도달!\n"
+                                    f"현재가: ${current_price:,.2f}\n"
+                                    f"손절가: ${alert.target_price:,.2f}"
+                                )
 
                     elif alert.alert_type == "PERCENT_CHANGE":
-                        # 일일 변동률 체크
-                        change_percent = quote.get("change_percent")
-                        if change_percent is not None:
-                            if abs(change_percent) >= abs(alert.target_percent):
-                                direction = "상승" if change_percent > 0 else "하락"
-                                should_alert = True
+                        # 변동률 체크 (기준가 대비)
+                        # reference_price가 없으면 현재가로 초기화
+                        if alert.reference_price is None:
+                            from app.crud import update_alert_reference_price
+
+                            update_alert_reference_price(db, alert.alert_id, current_price)
+                            print(
+                                f"📌 기준가 초기화: {watchlist.ticker} = {current_price}"
+                            )
+                            continue
+
+                        # 기준가 대비 변동률 계산
+                        change_percent = (
+                            (current_price - alert.reference_price)
+                            / alert.reference_price
+                        ) * 100
+
+                        # 목표 변동률 달성 여부 체크
+                        if abs(change_percent) >= abs(alert.target_percent):
+                            direction = "상승" if change_percent > 0 else "하락"
+                            should_alert = True
+
+                            # 종목 표시 형식 (티커와 이름)
+                            stock_display = (
+                                f"{watchlist.ticker} ({watchlist.name})"
+                                if watchlist.name
+                                else watchlist.ticker
+                            )
+
+                            # 통화 단위 (시장별 구분)
+                            if watchlist.market == "KR":
                                 alert_message = (
-                                    f"[가격 알림] {watchlist.ticker}\n"
+                                    f"[가격 알림] {stock_display}\n"
                                     f"급격한 {direction}!\n"
+                                    f"기준가: {alert.reference_price:,.0f}원\n"
+                                    f"현재가: {current_price:,.0f}원\n"
+                                    f"변동률: {change_percent:+.2f}%"
+                                )
+                            else:
+                                alert_message = (
+                                    f"[가격 알림] {stock_display}\n"
+                                    f"급격한 {direction}!\n"
+                                    f"기준가: ${alert.reference_price:,.2f}\n"
                                     f"현재가: ${current_price:,.2f}\n"
                                     f"변동률: {change_percent:+.2f}%"
                                 )
@@ -934,8 +990,19 @@ class FinanceBot:
                         result = await notification_service.send(user, alert_message)
 
                         if result.success:
-                            # 알림 상태 업데이트 (발동됨으로 표시)
-                            update_alert_triggered(db, alert.alert_id)
+                            # 알림 타입별 상태 업데이트
+                            if alert.alert_type == "PERCENT_CHANGE":
+                                # 변동률 알림: 기준가만 갱신 (계속 모니터링)
+                                from app.crud import update_alert_reference_price
+
+                                update_alert_reference_price(db, alert.alert_id, current_price)
+                                print(
+                                    f"📌 기준가 갱신: {watchlist.ticker} = {current_price}"
+                                )
+                            else:
+                                # 목표가/손절가 알림: 발동됨으로 표시 (일회성)
+                                update_alert_triggered(db, alert.alert_id)
+
                             create_log(
                                 db,
                                 "finance",

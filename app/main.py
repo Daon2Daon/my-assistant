@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from app.config import settings
-from app.database import init_db
+from app.database import init_db, run_migrations
 from app.middleware import AuthMiddleware
 from app.routers import auth, scheduler, reminders, pages, settings as settings_router, logs, weather, finance, calendar
 from app.services.scheduler import scheduler_service
@@ -75,6 +75,9 @@ async def startup_event():
 
     # 데이터베이스 초기화
     init_db()
+
+    # 데이터베이스 마이그레이션 자동 실행
+    run_migrations()
 
     # 스케줄러 시작
     scheduler_service.start()

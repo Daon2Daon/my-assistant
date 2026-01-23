@@ -17,7 +17,7 @@
 1. [Google Cloud Console](https://console.cloud.google.com/)에 접속합니다.
 2. 상단 프로젝트 선택 메뉴에서 **"새 프로젝트"**를 클릭합니다.
 3. 프로젝트 이름을 입력하고 **"만들기"**를 클릭합니다.
-   - 예: `my-kakao-assistant`
+   - 예: `my-assistant`
 4. 프로젝트가 생성되면 해당 프로젝트를 선택합니다.
 
 ### 2단계: OAuth 동의 화면 구성
@@ -27,7 +27,7 @@
    - **외부**: 일반 사용자들이 사용하는 앱인 경우
    - **내부**: Google Workspace 조직 내부에서만 사용하는 경우
 3. 앱 정보를 입력합니다:
-   - **앱 이름**: 예) `My Kakao Assistant`
+   - **앱 이름**: 예) `My Assistant`
    - **사용자 지원 이메일**: 본인의 이메일 주소
    - **앱 로고**: 선택사항
    - **앱 도메인**: 선택사항
@@ -51,7 +51,7 @@
 1. 좌측 메뉴에서 **"API 및 서비스"** > **"사용자 인증 정보"**를 선택합니다.
 2. 상단의 **"+ 사용자 인증 정보 만들기"** > **"OAuth 클라이언트 ID"**를 선택합니다.
 3. 애플리케이션 유형을 **"웹 애플리케이션"**으로 선택합니다.
-4. 이름을 입력합니다 (예: `My Kakao Assistant Web Client`).
+4. 이름을 입력합니다 (예: `My Assistant Web Client`).
 5. **승인된 리디렉션 URI**에 다음을 추가합니다:
    - 개발 환경: `http://localhost:8000/auth/google/callback`
    - 프로덕션 환경: `https://your-domain.com/auth/google/callback`

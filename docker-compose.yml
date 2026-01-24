@@ -1,43 +1,60 @@
-# My Assistant Docker Compose - Production
-# 서버 배포용 (Watchtower 자동 업데이트 지원)
-
-services:
-  my-assistant:
-    image: ghcr.io/daon2daon/my-assistant:latest
-    container_name: my-assistant
-    restart: always
-    tty: true
-    stdin_open: true
-    ports:
-      - "${APP_PORT:-8000}:8000"
-    volumes:
-      # 데이터 영속성 (SQLite DB)
-      - my-assistant-data:/app/data
-    env_file:
-      - .env
-    environment:
-      # 고정값만 설정 (변수 치환 없음)
-      - TZ=Asia/Seoul
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    networks:
-      - my-assistant-network
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-volumes:
-  my-assistant-data:
-    driver: local
-
-networks:
-  my-assistant-network:
-    driver: bridge
+  version: '3'                                                                                                                                                                                                       
+                                                                                                                                                                                                                     
+  services:                                                                                                                                                                                                          
+    my-assistant:                                                                                                                                                                                                    
+      image: ghcr.io/daon2daon/my-assistant:latest                                                                                                                                                                   
+      container_name: my-assistant                                                                                                                                                                                   
+      restart: always                                                                                                                                                                                                
+      ports:                                                                                                                                                                                                         
+        - "${APP_PORT:-8000}:8000"                                                                                                                                                                                   
+      volumes:                                                                                                                                                                                                       
+        - /volume1/docker/my-assistant/data:/app/data                                                                                                                                                                
+      environment:                                                                                                                                                                                                   
+        # System                                                                                                                                                                                                     
+        - TZ=Asia/Seoul                                                                                                                                                                                              
+                                                                                                                                                                                                                     
+        # Admin Login                                                                                                                                                                                                
+        - ADMIN_USERNAME=${ADMIN_USERNAME}                                                                                                                                                                           
+        - ADMIN_PASSWORD=${ADMIN_PASSWORD}                                                                                                                                                                           
+        - SESSION_SECRET_KEY=${SESSION_SECRET_KEY}                                                                                                                                                                   
+        - SESSION_MAX_AGE=${SESSION_MAX_AGE:-86400}                                                                                                                                                                  
+                                                                                                                                                                                                                     
+        # App Config                                                                                                                                                                                                 
+        - SECRET_KEY=${SECRET_KEY}                                                                                                                                                                                   
+        - DEBUG=${DEBUG:-False}                                                                                                                                                                                      
+        - DATABASE_URL=sqlite:///./data/assistant.db                                                                                                                                                                 
+                                                                                                                                                                                                                     
+        # Kakao API                                                                                                                                                                                                  
+        - KAKAO_REST_API_KEY=${KAKAO_REST_API_KEY}                                                                                                                                                                   
+        - KAKAO_REDIRECT_URI=${KAKAO_REDIRECT_URI}                                                                                                                                                                   
+                                                                                                                                                                                                                     
+        # Google API                                                                                                                                                                                                 
+        - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}                                                                                                                                                                       
+        - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}                                                                                                                                                               
+        - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI}                                                                                                                                                                 
+                                                                                                                                                                                                                     
+        # OpenWeatherMap                                                                                                                                                                                             
+        - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}                                                                                                                                                                 
+                                                                                                                                                                                                                     
+        # Telegram Bot                                                                                                                                                                                               
+        - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}                                                                                                                                                                   
+                                                                                                                                                                                                                     
+      labels:                                                                                                                                                                                                        
+        - "com.centurylinklabs.watchtower.enable=true"                                                                                                                                                               
+      healthcheck:                                                                                                                                                                                                   
+        test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]                                                                                               
+        interval: 30s                                                                                                                                                                                                
+        timeout: 10s                                                                                                                                                                                                 
+        retries: 3                                                                                                                                                                                                   
+        start_period: 10s                                                                                                                                                                                            
+      networks:                                                                                                                                                                                                      
+        - my-assistant-network                                                                                                                                                                                       
+      logging:                                                                                                                                                                                                       
+        driver: "json-file"                                                                                                                                                                                          
+        options:                                                                                                                                                                                                     
+          max-size: "10m"                                                                                                                                                                                            
+          max-file: "3"                                                                                                                                                                                              
+                                                                                                                                                                                                                     
+  networks:                                                                                                                                                                                                          
+    my-assistant-network:                                                                                                                                                                                            
+      driver: bridge 

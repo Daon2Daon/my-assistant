@@ -21,6 +21,12 @@
 - Place all '*.md' documentation files, excluding 'README.md', in the '/docs' directory.
 - Do not use emoticons or emojis when writing documentation.
 
+## Development Environment
+### My workflow consists of local development on macOS, managing images via GitHub Container Registry (GHCR), and handling automated deployments using Portainer and Watchtower.
+- Local Env: macOS
+- Registry: GHCR (GitHub Container Registry)
+- Management & CD: Portainer & Watchtower
+
 ## 참고사항
 - @docs/calendarplan.md 파일을 참고해서 앱 변경 개발을 진행해주세요.
 - @docs/calendarplan.md 파일에 단계별로 '[ ]' 항목이 있습니다. 이곳에 진행 완료된 항목은 체크해주세요.

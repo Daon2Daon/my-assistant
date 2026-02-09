@@ -90,12 +90,83 @@ class WeatherBot:
             print(f"❌ 예보 조회 실패: {e}")
             return None
 
-    def format_weather_message(self, weather_data: Dict) -> str:
+    async def get_daily_min_max(self, city: str = "Seoul") -> Optional[Dict]:
+        """
+        하루의 최저/최고 온도를 Forecast API에서 계산
+        - 오늘 데이터가 있으면 오늘 하루 사용
+        - 오늘 데이터가 없으면 (저녁/밤) 내일 하루 사용
+
+        Args:
+            city: 도시명
+
+        Returns:
+            Dict: {"temp_min": float, "temp_max": float, "date": str} 또는 None
+        """
+        try:
+            forecast_data = await self.get_forecast(city)
+            
+            if not forecast_data:
+                return None
+
+            now = datetime.now(ZoneInfo("Asia/Seoul"))
+            today = now.date()
+            
+            # 날짜별로 온도 데이터 수집
+            daily_temps = {}  # {date: [temps]}
+
+            for item in forecast_data.get("list", []):
+                # 예보 시간을 서울 시간대로 변환
+                forecast_dt = datetime.fromtimestamp(
+                    item["dt"], tz=ZoneInfo("Asia/Seoul")
+                )
+                forecast_date = forecast_dt.date()
+                temp = item["main"]["temp"]
+                
+                # 날짜별로 온도 수집
+                if forecast_date not in daily_temps:
+                    daily_temps[forecast_date] = []
+                daily_temps[forecast_date].append(temp)
+
+            # 오늘 데이터가 있는지 확인
+            if today in daily_temps and len(daily_temps[today]) >= 3:
+                # 오늘 데이터가 충분하면 (최소 3개 이상) 오늘 사용
+                temps = daily_temps[today]
+                target_date = today
+            else:
+                # 오늘 데이터가 없거나 부족하면 다음날 사용
+                from datetime import timedelta
+                tomorrow = today + timedelta(days=1)
+                if tomorrow in daily_temps:
+                    temps = daily_temps[tomorrow]
+                    target_date = tomorrow
+                else:
+                    return None
+
+            # 최저/최고 계산
+            if temps:
+                return {
+                    "temp_min": min(temps),
+                    "temp_max": max(temps),
+                    "date": target_date.strftime("%Y-%m-%d")
+                }
+            
+            return None
+
+        except Exception as e:
+            print(f"❌ 최저/최고 온도 계산 실패: {e}")
+            return None
+
+    def format_weather_message(
+        self, 
+        weather_data: Dict, 
+        daily_min_max: Optional[Dict] = None
+    ) -> str:
         """
         날씨 데이터를 메시지 형식으로 포맷팅
 
         Args:
-            weather_data: OpenWeatherMap API 응답 데이터
+            weather_data: OpenWeatherMap Current Weather API 응답 데이터
+            daily_min_max: 오늘의 최저/최고 온도 (Forecast API에서 계산)
 
         Returns:
             str: 포맷팅된 메시지
@@ -110,12 +181,19 @@ class WeatherBot:
 
             temp = main.get("temp", 0)
             feels_like = main.get("feels_like", 0)
-            temp_min = main.get("temp_min", 0)
-            temp_max = main.get("temp_max", 0)
             humidity = main.get("humidity", 0)
             description = weather.get("description", "정보 없음")
             wind_speed = wind.get("speed", 0)
             cloudiness = clouds.get("all", 0)
+
+            # 최저/최고 온도 결정
+            # Forecast API에서 가져온 값이 있으면 사용, 없으면 Current API의 값 사용
+            if daily_min_max:
+                temp_min = daily_min_max.get("temp_min", main.get("temp_min", 0))
+                temp_max = daily_min_max.get("temp_max", main.get("temp_max", 0))
+            else:
+                temp_min = main.get("temp_min", 0)
+                temp_max = main.get("temp_max", 0)
 
             # 우산 필요 여부 판단 (비/눈이 오거나 습도가 높은 경우)
             weather_main = weather.get("main", "")
@@ -165,7 +243,7 @@ class WeatherBot:
                 create_log(db, "weather", "SKIP", "날씨 알림 비활성화 상태")
                 return
 
-            # 날씨 정보 조회
+            # 현재 날씨 정보 조회
             weather_data = await self.get_weather(city)
 
             if not weather_data:
@@ -173,8 +251,11 @@ class WeatherBot:
                 create_log(db, "weather", "FAIL", f"날씨 정보 조회 실패 - {city}")
                 return
 
+            # 오늘의 최저/최고 온도 조회 (Forecast API)
+            daily_min_max = await self.get_daily_min_max(city)
+
             # 메시지 포맷팅
-            message = self.format_weather_message(weather_data)
+            message = self.format_weather_message(weather_data, daily_min_max)
 
             # 연동된 채널 확인
             available_channels = notification_service.get_available_channels(user)

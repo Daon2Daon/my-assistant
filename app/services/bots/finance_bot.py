@@ -308,6 +308,29 @@ class FinanceBot:
             print(f"❌ 52주 범위 조회 실패 ({ticker}): {e}")
             return None
 
+    def _validate_kr_ticker(self, ticker: str) -> bool:
+        """한국 시장 티커 유효성 검증 (개별 종목, ETF, ETN)"""
+        try:
+            name = stock.get_market_ticker_name(ticker)
+            if isinstance(name, str) and len(name) > 0:
+                return True
+            today = datetime.now(ZoneInfo("Asia/Seoul"))
+            end_date = today.strftime("%Y%m%d")
+            start_date = (today - timedelta(days=30)).strftime("%Y%m%d")
+            for get_ohlcv in (
+                stock.get_market_ohlcv_by_date,
+                stock.get_etf_ohlcv_by_date,
+            ):
+                try:
+                    df = get_ohlcv(start_date, end_date, ticker)
+                    if df is not None and not df.empty and len(df) >= 1:
+                        return True
+                except Exception:
+                    pass
+            return False
+        except Exception:
+            return False
+
     def validate_ticker(self, ticker: str, market: str = "US") -> bool:
         """
         티커 유효성 검증
@@ -319,18 +342,17 @@ class FinanceBot:
         Returns:
             bool: 유효한 티커 여부
         """
+        ticker = (ticker or "").strip()
+        if not ticker:
+            return False
         try:
             if market == "US":
                 stock_obj = yf.Ticker(ticker)
                 info = stock_obj.info
-                # regularMarketPrice 또는 currentPrice가 있으면 유효한 티커
                 return "regularMarketPrice" in info or "currentPrice" in info
 
             elif market == "KR":
-                # 한국 종목명 조회
-                name = stock.get_market_ticker_name(ticker)
-                # 문자열이고 비어있지 않으면 유효
-                return isinstance(name, str) and len(name) > 0
+                return self._validate_kr_ticker(ticker)
 
             return False
 
@@ -704,7 +726,7 @@ class FinanceBot:
             available_channels = notification_service.get_available_channels(user)
             if not available_channels:
                 create_log(db, "finance", "FAIL", "연동된 알림 채널이 없습니다")
-                print("⚠️  알림 채널 연동이 필요합니다 (카카오톡 또는 텔레그램)")
+                print("⚠️  알림 채널 연동이 필요합니다 (텔레그램)")
                 return
 
             # 알림 발송 (연동된 모든 채널로 자동 발송)
@@ -802,7 +824,7 @@ class FinanceBot:
             available_channels = notification_service.get_available_channels(user)
             if not available_channels:
                 create_log(db, "finance", "FAIL", "연동된 알림 채널이 없습니다")
-                print("⚠️  알림 채널 연동이 필요합니다 (카카오톡 또는 텔레그램)")
+                print("⚠️  알림 채널 연동이 필요합니다 (텔레그램)")
                 return
 
             # 알림 발송 (연동된 모든 채널로 자동 발송)

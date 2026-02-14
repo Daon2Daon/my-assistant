@@ -35,22 +35,6 @@ def get_or_create_user(db: Session) -> User:
     return user
 
 
-def update_user_kakao_tokens(
-    db: Session, user_id: int, access_token: str, refresh_token: str
-) -> User:
-    """
-    카카오 토큰 업데이트
-    """
-    user = get_user(db, user_id)
-    if user:
-        user.kakao_access_token = access_token
-        user.kakao_refresh_token = refresh_token
-        user.updated_at = datetime.now()
-        db.commit()
-        db.refresh(user)
-    return user
-
-
 def update_user_google_tokens(
     db: Session,
     user_id: int,

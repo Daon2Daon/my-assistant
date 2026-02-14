@@ -24,27 +24,12 @@ class TestHealthEndpoint:
 class TestAuthEndpoints:
     """인증 관련 엔드포인트 테스트"""
 
-    def test_kakao_login_redirect(self, client):
-        """카카오 로그인 리다이렉트 테스트"""
-        response = client.get("/auth/kakao/login", follow_redirects=False)
-        # 카카오 인증 페이지로 리다이렉트
-        assert response.status_code == 307
-        assert "kauth.kakao.com" in response.headers.get("location", "")
-
     def test_google_login_redirect(self, client):
         """구글 로그인 리다이렉트 테스트"""
         response = client.get("/auth/google/login", follow_redirects=False)
         # 구글 인증 페이지로 리다이렉트
         assert response.status_code == 307
         assert "accounts.google.com" in response.headers.get("location", "")
-
-    def test_kakao_auth_status_not_connected(self, client):
-        """카카오 연동 상태 확인 (미연동)"""
-        response = client.get("/auth/kakao/status")
-        assert response.status_code == 200
-        data = response.json()
-        assert "kakao_authenticated" in data
-        assert data["kakao_authenticated"] is False
 
     def test_google_auth_status_not_connected(self, client):
         """구글 연동 상태 확인 (미연동)"""
@@ -257,5 +242,5 @@ class TestDashboardEndpoints:
         response = client.get("/api/dashboard/auth-status")
         assert response.status_code == 200
         data = response.json()
-        assert "kakao_connected" in data
         assert "google_connected" in data
+        assert "telegram_connected" in data

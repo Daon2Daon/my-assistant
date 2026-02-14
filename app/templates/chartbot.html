@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+
+{% block title %}Chartbot - My Assistant{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h2><i class="bi bi-bar-chart-line me-2"></i>Chartbot</h2>
+        <p class="text-muted">등록한 종목의 차트를 정해진 시간에 텔레그램으로 받아보세요</p>
+    </div>
+</div>
+
+<!-- 상태 카드 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>상태</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label fw-bold">활성화</label>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="chartbot-active-toggle">
+                            <label class="form-check-label" id="active-status-label">Loading...</label>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label fw-bold">다음 발송 예정</label>
+                        <p id="next-run-time" class="mb-0 text-muted">-</p>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label fw-bold">마지막 발송</label>
+                        <p id="last-run-info" class="mb-0 text-muted">-</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 설정 섹션 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-gear me-2"></i>설정</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">각 종목별로 발송 요일과 시간을 설정할 수 있습니다. 매주 설정된 요일·시간에 차트가 발송됩니다.</p>
+                <button class="btn btn-primary" onclick="saveSettings()">
+                    <i class="bi bi-save me-1"></i>설정 저장
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 종목 등록 섹션 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-graph-up-arrow me-2"></i>차트 발송 종목</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3 add-ticker-form">
+                    <div class="col-md-2 mb-2 me-md-4">
+                        <label for="ticker-input" class="form-label fw-bold">티커/종목코드</label>
+                        <input type="text" class="form-control" id="ticker-input" placeholder="AAPL, 005930">
+                        <small class="text-muted">예: AAPL, 005930</small>
+                        <span id="add-ticker-name" class="text-muted small d-block mt-1"></span>
+                    </div>
+                    <div class="col-md-1 mb-2 me-md-4">
+                        <label for="market-select" class="form-label fw-bold">시장</label>
+                        <select class="form-select" id="market-select">
+                            <option value="US">US</option>
+                            <option value="KR">KR</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3 mb-2 me-md-4">
+                        <label class="form-label fw-bold">발송 요일</label>
+                        <div class="d-flex flex-wrap gap-2 align-items-center">
+                            <label class="form-check form-check-inline mb-0"><input type="checkbox" class="form-check-input add-day" value="0">월</label>
+                            <label class="form-check form-check-inline mb-0"><input type="checkbox" class="form-check-input add-day" value="1">화</label>
+                            <label class="form-check form-check-inline mb-0"><input type="checkbox" class="form-check-input add-day" value="2">수</label>
+                            <label class="form-check form-check-inline mb-0"><input type="checkbox" class="form-check-input add-day" value="3">목</label>
+                            <label class="form-check form-check-inline mb-0"><input type="checkbox" class="form-check-input add-day" value="4">금</label>
+                            <label class="form-check form-check-inline mb-0"><input type="checkbox" class="form-check-input add-day" value="5">토</label>
+                            <label class="form-check form-check-inline mb-0"><input type="checkbox" class="form-check-input add-day" value="6">일</label>
+                        </div>
+                    </div>
+                    <div class="col-md-2 mb-2 me-md-4">
+                        <label for="add-notification-time" class="form-label fw-bold">시간</label>
+                        <input type="time" class="form-control add-notification-time" id="add-notification-time" value="09:00">
+                    </div>
+                    <div class="col-md-2 mb-2 d-flex align-items-end">
+                        <button class="btn btn-success w-100" onclick="addTicker()">
+                            <i class="bi bi-plus-circle me-1"></i>종목 추가
+                        </button>
+                    </div>
+                </div>
+
+                <hr>
+
+                <h6 class="mb-3"><i class="bi bi-list-ul me-2"></i>등록된 종목 (요일·시간 설정 후 저장)</h6>
+                <div id="tickers-container">
+                    <div class="text-center text-muted py-3">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        <span class="ms-2">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 테스트 및 미리보기 -->
+<div class="row mb-4">
+    <div class="col-md-6 mb-3">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-lightning me-2"></i>테스트</h5>
+            </div>
+            <div class="card-body">
+                <button class="btn btn-success w-100 mb-2" onclick="testChartbot()">
+                    <i class="bi bi-send me-1"></i>즉시 테스트 발송
+                </button>
+                <p class="text-muted small mb-0">등록된 모든 종목의 차트를 즉시 텔레그램으로 발송합니다</p>
+                <div id="test-result" class="mt-3"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 mb-3">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-eye me-2"></i>차트 미리보기</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-2">
+                    <div class="col-5">
+                        <input type="text" class="form-control form-control-sm" id="preview-ticker" placeholder="AAPL">
+                    </div>
+                    <div class="col-3">
+                        <select class="form-select form-select-sm" id="preview-market">
+                            <option value="US">US</option>
+                            <option value="KR">KR</option>
+                        </select>
+                    </div>
+                    <div class="col-4">
+                        <button class="btn btn-sm btn-outline-primary w-100" onclick="previewChart()">
+                            <i class="bi bi-eye me-1"></i>미리보기
+                        </button>
+                    </div>
+                </div>
+                <div id="chart-preview" class="mt-2 text-center" style="min-height: 200px;">
+                    <span class="text-muted">종목을 입력하고 미리보기를 클릭하세요</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 관련 로그 -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-journal-text me-2"></i>최근 로그</h5>
+                <button class="btn btn-sm btn-outline-primary" onclick="loadLogs()">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+            <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                <div id="logs-container">
+                    <div class="text-center text-muted py-3">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        <span class="ms-2">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.add-ticker-form .add-notification-time { min-width: 160px !important; }
+.ticker-item { flex-wrap: nowrap; }
+.ticker-item .ticker-info {
+    flex: 0 0 400px;
+    width: 400px;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+}
+.ticker-item .ticker-info .ticker-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ticker-item .ticker-days { flex: 0 0 auto; min-width: 200px; }
+.ticker-item .ticker-time { flex: 0 0 auto; }
+.ticker-item .ticker-time input { min-width: 160px !important; }
+.ticker-item .ticker-actions { flex: 0 0 auto; }
+@media (max-width: 767px) {
+    .ticker-item { flex-wrap: wrap; }
+    .ticker-item .ticker-info { flex: 1 1 100%; width: auto; }
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/chartbot.js?v={{ range(1, 10000) | random }}"></script>
+{% endblock %}

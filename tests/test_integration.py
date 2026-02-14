@@ -134,44 +134,6 @@ class TestTokenRefreshScenarios:
     """토큰 갱신 시나리오 테스트"""
 
     @pytest.mark.asyncio
-    async def test_kakao_token_refresh(self, db_session, test_user):
-        """카카오 토큰 갱신 테스트"""
-        from app.services.auth.kakao_auth import KakaoAuthService
-        from app import crud
-
-        auth_service = KakaoAuthService()
-
-        # 기존 토큰 확인
-        assert test_user.kakao_access_token == "test_kakao_access_token"
-        assert test_user.kakao_refresh_token == "test_kakao_refresh_token"
-
-        # 토큰 갱신 API 호출 모킹
-        mock_response = {
-            "access_token": "new_access_token",
-            "refresh_token": "new_refresh_token",
-            "expires_in": 3600,
-        }
-
-        with patch.object(
-            auth_service, "refresh_access_token", new_callable=AsyncMock
-        ) as mock_refresh:
-            mock_refresh.return_value = mock_response
-
-            # 토큰 갱신
-            result = await auth_service.refresh_access_token("test_kakao_refresh_token")
-            assert result["access_token"] == "new_access_token"
-
-        # DB 업데이트
-        updated_user = crud.update_user_kakao_tokens(
-            db_session,
-            test_user.user_id,
-            "new_access_token",
-            "new_refresh_token",
-        )
-        assert updated_user.kakao_access_token == "new_access_token"
-        assert updated_user.kakao_refresh_token == "new_refresh_token"
-
-    @pytest.mark.asyncio
     async def test_google_token_refresh(self, db_session, test_user):
         """구글 토큰 갱신 테스트"""
         from app.services.auth.google_auth import GoogleAuthService
@@ -264,31 +226,6 @@ class TestErrorHandling:
 
             result = await bot.get_weather("Seoul")
             assert result is None  # 네트워크 오류 시 None 반환
-
-    @pytest.mark.asyncio
-    async def test_kakao_api_failure_handling(self):
-        """카카오 API 실패 처리 테스트"""
-        from app.services.auth.kakao_auth import KakaoAuthService
-
-        auth_service = KakaoAuthService()
-
-        # API 실패 모킹
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_response = MagicMock()
-            mock_response.status_code = 401
-            mock_response.json.return_value = {"error": "invalid_token"}
-            mock_client.return_value.__aenter__.return_value.post = AsyncMock(
-                return_value=mock_response
-            )
-
-            # 실패 시 예외 발생 또는 None 반환
-            try:
-                result = await auth_service.refresh_token("invalid_token")
-                # 구현에 따라 None 또는 예외
-                assert result is None or "error" in result
-            except Exception as e:
-                # 예외 처리됨
-                assert True
 
     def test_log_creation_on_error(self, db_session):
         """에러 발생 시 로그 생성 테스트"""

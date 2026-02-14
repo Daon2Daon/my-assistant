@@ -1,6 +1,6 @@
 """
 예약 메모 봇
-지정된 시간에 메모를 카카오톡으로 발송
+지정된 시간에 메모를 텔레그램으로 발송
 """
 
 from datetime import datetime, timezone
@@ -86,7 +86,7 @@ class MemoBot:
             available_channels = notification_service.get_available_channels(user)
             if not available_channels:
                 create_log(db, "memo", "FAIL", f"연동된 알림 채널이 없습니다 (reminder_id: {reminder_id})")
-                print("⚠️  알림 채널 연동이 필요합니다 (카카오톡 또는 텔레그램)")
+                print("⚠️  알림 채널 연동이 필요합니다 (텔레그램)")
                 return
 
             # 메시지 포맷팅 (예약된 시간을 포함)

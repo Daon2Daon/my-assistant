@@ -3,6 +3,7 @@
 Telegram Bot API를 사용한 메시지 발송
 """
 
+import os
 import httpx
 from typing import Optional, Dict
 from app.models import User
@@ -15,6 +16,65 @@ class TelegramSender:
     def __init__(self):
         self.bot_token = settings.TELEGRAM_BOT_TOKEN
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
+
+    async def send_photo(
+        self, user: User, photo_path: str, caption: str = ""
+    ) -> bool:
+        """
+        텔레그램으로 이미지 발송
+
+        Args:
+            user: 사용자 객체 (telegram_chat_id 필요)
+            photo_path: 이미지 파일 경로 (절대 경로)
+            caption: 이미지 캡션 (선택)
+
+        Returns:
+            bool: 발송 성공 여부
+        """
+        try:
+            if not user.telegram_chat_id:
+                print("❌ 텔레그램 chat_id가 없습니다")
+                return False
+
+            url = f"{self.base_url}/sendPhoto"
+
+            with open(photo_path, "rb") as photo_file:
+                files = {
+                    "photo": (
+                        os.path.basename(photo_path),
+                        photo_file,
+                        "image/png",
+                    )
+                }
+                data = {
+                    "chat_id": user.telegram_chat_id,
+                    "caption": caption,
+                    "parse_mode": "HTML",
+                }
+
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.post(
+                        url, data=data, files=files
+                    )
+
+                    if response.status_code == 200:
+                        print(
+                            f"✅ 텔레그램 이미지 발송 성공 (user_id: {user.user_id})"
+                        )
+                        return True
+                    else:
+                        print(
+                            f"❌ 텔레그램 이미지 발송 실패: "
+                            f"{response.status_code} - {response.text}"
+                        )
+                        return False
+
+        except FileNotFoundError:
+            print(f"❌ 이미지 파일을 찾을 수 없습니다: {photo_path}")
+            return False
+        except Exception as e:
+            print(f"❌ 텔레그램 이미지 발송 실패: {e}")
+            return False
 
     async def send_message(self, user: User, message: str) -> bool:
         """

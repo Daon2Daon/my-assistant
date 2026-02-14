@@ -1,6 +1,6 @@
 """
 My Assistant 메인 애플리케이션
-FastAPI 기반 개인용 카카오톡 비서 앱
+FastAPI 기반 개인용 비서 앱
 """
 
 from fastapi import FastAPI
@@ -10,14 +10,14 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.config import settings
 from app.database import init_db, run_migrations
 from app.middleware import AuthMiddleware
-from app.routers import auth, scheduler, reminders, pages, settings as settings_router, logs, weather, finance, calendar
+from app.routers import auth, scheduler, reminders, pages, settings as settings_router, logs, weather, finance, calendar, chartbot
 from app.services.scheduler import scheduler_service
 from app.services.bots.memo_bot import memo_bot
 
 # FastAPI 앱 생성
 app = FastAPI(
     title="My Assistant",
-    description="개인용 카카오톡 비서 앱 - 날씨, 금융, 일정 알림 서비스",
+    description="개인용 비서 앱 - 날씨, 금융, 일정 알림 서비스 (텔레그램)",
     version="0.1.0",
     debug=settings.DEBUG,
 )
@@ -49,6 +49,7 @@ app.include_router(logs.router)
 app.include_router(weather.router)
 app.include_router(finance.router)
 app.include_router(calendar.router)
+app.include_router(chartbot.router)
 
 # Pages 라우터 (페이지 렌더링) - 마지막에 등록
 app.include_router(pages.router)
@@ -99,6 +100,12 @@ async def startup_event():
         scheduler_service.setup_finance_jobs()
     except Exception as e:
         print(f"⚠️  Finance Job 등록 실패: {e}")
+
+    # Chartbot Job 등록
+    try:
+        scheduler_service.setup_chartbot_job()
+    except Exception as e:
+        print(f"⚠️  Chartbot Job 등록 실패: {e}")
 
     # 미발송 메모 Job 복원
     restored_count = memo_bot.restore_pending_reminders()

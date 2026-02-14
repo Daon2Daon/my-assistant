@@ -24,10 +24,6 @@
         - DEBUG=${DEBUG:-False}                                                                                                                                                                                      
         - DATABASE_URL=sqlite:///./data/assistant.db                                                                                                                                                                 
                                                                                                                                                                                                                      
-        # Kakao API                                                                                                                                                                                                  
-        - KAKAO_REST_API_KEY=${KAKAO_REST_API_KEY}                                                                                                                                                                   
-        - KAKAO_REDIRECT_URI=${KAKAO_REDIRECT_URI}                                                                                                                                                                   
-                                                                                                                                                                                                                     
         # Google API                                                                                                                                                                                                 
         - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}                                                                                                                                                                       
         - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}                                                                                                                                                               

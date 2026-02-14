@@ -432,6 +432,65 @@ class SchedulerService:
         finally:
             db.close()
 
+    def setup_chartbot_job(self):
+        """
+        Chartbot Job 설정
+        매 분마다 실행되어, 각 종목별 설정된 발송 시간에 맞춰 차트 발송
+        """
+        from app.database import SessionLocal
+        from app.crud import get_setting_by_category, get_or_create_user
+        from app.services.bots.chart_bot import chartbot_dispatcher_sync
+
+        db = SessionLocal()
+        try:
+            user = get_or_create_user(db)
+            setting = get_setting_by_category(db, user.user_id, "chartbot")
+
+            if not setting or not setting.is_active:
+                print("⏸️  Chartbot이 비활성화되어 있습니다")
+                return
+
+            tickers = []
+            if setting.config_json:
+                try:
+                    import json
+                    config = json.loads(setting.config_json)
+                    tickers = config.get("tickers", [])
+                except Exception:
+                    pass
+
+            if not tickers:
+                print("⏸️  Chartbot 등록 종목이 없습니다")
+                return
+
+            # 매 분 실행되는 디스패처 Job 등록
+            try:
+                trigger = CronTrigger(minute="*")
+                self.scheduler.add_job(
+                    chartbot_dispatcher_sync,
+                    trigger=trigger,
+                    id="chartbot_dispatcher",
+                    replace_existing=True,
+                )
+                print("✅ Chartbot 디스패처 Job 등록: 매 분 실행 (종목별 발송 시간 체크)")
+            except Exception as e:
+                print(f"❌ Chartbot Job 등록 실패: {e}")
+
+        except Exception as e:
+            print(f"❌ Chartbot Job 설정 실패: {e}")
+        finally:
+            db.close()
+
+    def update_chartbot_job(self):
+        """
+        Chartbot 설정 변경 시 Job 업데이트
+        """
+        try:
+            self.remove_job("chartbot_dispatcher")
+            self.setup_chartbot_job()
+        except Exception as e:
+            print(f"❌ Chartbot Job 업데이트 실패: {e}")
+
     def update_finance_jobs(self):
         """
         Finance 설정 변경 시 Job 업데이트

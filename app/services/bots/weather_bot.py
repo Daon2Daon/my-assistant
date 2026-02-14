@@ -261,7 +261,7 @@ class WeatherBot:
             available_channels = notification_service.get_available_channels(user)
             if not available_channels:
                 create_log(db, "weather", "FAIL", "연동된 알림 채널이 없습니다")
-                print("⚠️  알림 채널 연동이 필요합니다 (카카오톡 또는 텔레그램)")
+                print("⚠️  알림 채널 연동이 필요합니다 (텔레그램)")
                 return
 
             # 알림 발송 (연동된 모든 채널로 자동 발송)

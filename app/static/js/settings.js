@@ -11,19 +11,6 @@ document.addEventListener('DOMContentLoaded', function() {
 function checkLoginStatus() {
     const urlParams = new URLSearchParams(window.location.search);
 
-    // Kakao login status
-    if (urlParams.get('kakao_login') === 'success') {
-        showSettingsResult('카카오 로그인 성공', 'success');
-        // Remove query parameters from URL
-        window.history.replaceState({}, document.title, '/settings');
-        // Reload auth status
-        loadSettingsAuthStatus();
-    } else if (urlParams.get('kakao_login') === 'error') {
-        const message = decodeURIComponent(urlParams.get('message') || '카카오 로그인 실패');
-        showSettingsResult(`카카오 로그인 실패: ${message}`, 'danger');
-        window.history.replaceState({}, document.title, '/settings');
-    }
-
     // Google login status
     if (urlParams.get('google_login') === 'success') {
         showSettingsResult('구글 로그인 성공', 'success');
@@ -41,23 +28,6 @@ function checkLoginStatus() {
 async function loadSettingsAuthStatus() {
     try {
         const data = await fetchApi('/api/dashboard/auth-status');
-
-        // Kakao
-        const kakaoStatus = document.getElementById('settings-kakao-status');
-        const kakaoConnectBtn = document.getElementById('settings-kakao-connect-btn');
-        const kakaoDisconnectBtn = document.getElementById('settings-kakao-disconnect-btn');
-
-        if (data.kakao_connected) {
-            kakaoStatus.className = 'badge bg-success';
-            kakaoStatus.textContent = 'Connected';
-            kakaoConnectBtn.style.display = 'none';
-            kakaoDisconnectBtn.style.display = 'inline-block';
-        } else {
-            kakaoStatus.className = 'badge bg-secondary';
-            kakaoStatus.textContent = 'Not Connected';
-            kakaoConnectBtn.style.display = 'inline-block';
-            kakaoDisconnectBtn.style.display = 'none';
-        }
 
         // Google
         const googleStatus = document.getElementById('settings-google-status');
@@ -308,23 +278,8 @@ async function testTelegram() {
 }
 
 // ========================================
-// Kakao & Google Disconnect Functions
+// Google Disconnect Function
 // ========================================
-
-// Disconnect Kakao
-async function disconnectKakao() {
-    if (!confirm('카카오톡 연동을 해제하시겠습니까?\n알림을 받을 수 없게 됩니다.')) {
-        return;
-    }
-
-    try {
-        await fetchApi('/auth/kakao/disconnect', { method: 'POST' });
-        showSettingsResult('카카오톡 연동이 해제되었습니다', 'success');
-        loadSettingsAuthStatus();
-    } catch (error) {
-        showSettingsResult('카카오톡 연동 해제에 실패했습니다', 'danger');
-    }
-}
 
 // Disconnect Google
 async function disconnectGoogle() {

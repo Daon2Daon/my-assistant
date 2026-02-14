@@ -34,18 +34,6 @@ class TestUserCRUD:
         user = crud.get_or_create_user(db_session)
         assert user.user_id == test_user.user_id
 
-    def test_update_user_kakao_tokens(self, db_session, test_user):
-        """카카오 토큰 업데이트 테스트"""
-        new_access_token = "new_access_token"
-        new_refresh_token = "new_refresh_token"
-
-        updated_user = crud.update_user_kakao_tokens(
-            db_session, test_user.user_id, new_access_token, new_refresh_token
-        )
-
-        assert updated_user.kakao_access_token == new_access_token
-        assert updated_user.kakao_refresh_token == new_refresh_token
-
     def test_update_user_google_tokens(self, db_session, test_user):
         """구글 토큰 업데이트 테스트"""
         new_access_token = "new_google_access"

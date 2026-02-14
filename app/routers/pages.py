@@ -73,6 +73,17 @@ async def finance_page(request: Request):
     )
 
 
+@router.get("/chartbot", response_class=HTMLResponse)
+async def chartbot_page(request: Request):
+    """
+    Chartbot - 종목 차트 정기 발송 관리 페이지
+    """
+    return templates.TemplateResponse(
+        "chartbot.html",
+        {"request": request, "active_page": "chartbot"}
+    )
+
+
 @router.get("/calendar", response_class=HTMLResponse)
 async def calendar_page(request: Request):
     """
@@ -121,22 +132,22 @@ async def settings_page(request: Request):
 async def get_auth_status(db: Session = Depends(get_db)):
     """
     인증 상태 조회 API
-    카카오/구글 연동 상태 반환
+    구글 연동 상태 반환
     """
     try:
         user = get_or_create_user(db)
 
         return JSONResponse(
             content={
-                "kakao_connected": bool(user.kakao_access_token),
                 "google_connected": bool(user.google_access_token),
+                "telegram_connected": bool(user.telegram_chat_id),
             }
         )
     except Exception as e:
         return JSONResponse(
             content={
-                "kakao_connected": False,
                 "google_connected": False,
+                "telegram_connected": False,
                 "error": str(e)
             }
         )

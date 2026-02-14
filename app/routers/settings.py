@@ -58,6 +58,7 @@ async def list_settings(db: Session = Depends(get_db)):
             ("weather", "06:30"),
             ("finance", "08:00"),
             ("calendar", "07:00"),
+            ("chartbot", "09:00"),
         ]
 
         existing_categories = {s.category for s in settings_list}

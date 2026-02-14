@@ -13,12 +13,6 @@ load_dotenv()
 class Settings:
     """애플리케이션 설정 클래스"""
 
-    # Kakao API
-    KAKAO_REST_API_KEY: str = os.getenv("KAKAO_REST_API_KEY", "")
-    KAKAO_REDIRECT_URI: str = os.getenv(
-        "KAKAO_REDIRECT_URI", "http://localhost:8000/auth/kakao/callback"
-    )
-
     # Google API
     GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
     GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
@@ -38,6 +32,7 @@ class Settings:
     # App
     SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-change-this")
     DEBUG: bool = os.getenv("DEBUG", "True").lower() == "true"
+    BASE_URL: str = os.getenv("BASE_URL", "http://localhost:8000")  # 차트 이미지 등 공개 URL (프로덕션 필수)
 
     # Admin Login
     ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "admin")
@@ -46,12 +41,6 @@ class Settings:
         "SESSION_SECRET_KEY", "change-this-to-random-32-chars-min"
     )
     SESSION_MAX_AGE: int = int(os.getenv("SESSION_MAX_AGE", "86400"))  # 24시간
-
-    # API URLs
-    KAKAO_AUTH_URL: str = "https://kauth.kakao.com/oauth/authorize"
-    KAKAO_TOKEN_URL: str = "https://kauth.kakao.com/oauth/token"
-    KAKAO_API_URL: str = "https://kapi.kakao.com"
-
 
 # 전역 설정 인스턴스
 settings = Settings()

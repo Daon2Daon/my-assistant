@@ -46,7 +46,7 @@ async function loadModuleSummary() {
         // Load jobs for next run time
         const jobsData = await fetchApi('/api/scheduler/jobs');
 
-        // Map job IDs to module categories
+        // Map job IDs to module categories (chartbot는 별도 API 사용)
         const jobModuleMap = {
             'weather_daily': 'weather',
             'finance_us_daily': 'finance',
@@ -58,11 +58,22 @@ async function loadModuleSummary() {
             const module = jobModuleMap[job.id];
             if (module) {
                 const nextRunEl = document.getElementById(`${module}-next-run`);
-                if (nextRunEl) {
+                if (nextRunEl && job.next_run_time) {
                     nextRunEl.textContent = `다음 발송: ${formatDateTime(job.next_run_time)}`;
                 }
             }
         });
+
+        // Chartbot: /api/chartbot/status에서 다음 발송 시각 조회 (종목별 설정 기반)
+        try {
+            const chartbotData = await fetchApi('/api/chartbot/status');
+            const nextRunEl = document.getElementById('chartbot-next-run');
+            if (nextRunEl && chartbotData.is_active && chartbotData.next_run_time) {
+                nextRunEl.textContent = `다음 발송: ${formatDateTime(chartbotData.next_run_time)}`;
+            }
+        } catch (e) {
+            console.warn('Chartbot status 조회 실패:', e);
+        }
 
         // Load reminders count
         const remindersData = await fetchApi('/api/reminders');

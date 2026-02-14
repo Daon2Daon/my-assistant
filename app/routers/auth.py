@@ -1,6 +1,6 @@
 """
 인증 API 라우터
-카카오/구글 OAuth 로그인 엔드포인트 및 관리자 세션 로그인
+구글 OAuth 로그인 엔드포인트 및 관리자 세션 로그인
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Form
@@ -10,7 +10,6 @@ from urllib.parse import quote
 from pydantic import BaseModel
 
 from app.database import get_db
-from app.services.auth.kakao_auth import kakao_auth_service
 from app.services.auth.google_auth import google_auth_service
 from app.services.auth.session_auth import (
     verify_admin_credentials,
@@ -20,7 +19,6 @@ from app.services.auth.session_auth import (
 )
 from app.crud import (
     get_or_create_user,
-    update_user_kakao_tokens,
     update_user_google_tokens,
     update_user_telegram_chat_id,
     disconnect_user_telegram,
@@ -41,202 +39,6 @@ class TelegramVerifyRequest(BaseModel):
     """텔레그램 연동 확인 요청"""
 
     chat_id: str
-
-
-# ============================================================
-# 카카오 OAuth
-# ============================================================
-
-
-@router.get("/kakao/login")
-async def kakao_login():
-    """
-    카카오 로그인 시작
-    사용자를 카카오 인증 페이지로 리다이렉트
-    """
-    auth_url = kakao_auth_service.get_authorization_url()
-    return RedirectResponse(url=auth_url)
-
-
-@router.get("/kakao/callback")
-async def kakao_callback(code: str = Query(...), db: Session = Depends(get_db)):
-    """
-    카카오 인증 콜백
-    인증 코드를 받아서 토큰을 발급하고 DB에 저장
-
-    Args:
-        code: 카카오 인증 서버에서 받은 인증 코드
-        db: 데이터베이스 세션
-    """
-    try:
-        # 인증 코드로 토큰 발급
-        token_data = await kakao_auth_service.get_token_from_code(code)
-
-        access_token = token_data.get("access_token")
-        refresh_token = token_data.get("refresh_token")
-
-        if not access_token or not refresh_token:
-            raise HTTPException(status_code=400, detail="토큰 발급 실패")
-
-        # 사용자 정보 조회 (선택사항)
-        try:
-            user_info = await kakao_auth_service.get_user_info(access_token)
-            print(f"✅ 카카오 로그인 성공: {user_info.get('id')}")
-        except Exception as e:
-            print(f"⚠️  사용자 정보 조회 실패: {e}")
-
-        # DB에 토큰 저장
-        user = get_or_create_user(db)
-        update_user_kakao_tokens(db, user.user_id, access_token, refresh_token)
-
-        # 로그 기록
-        create_log(db, "auth", "SUCCESS", f"카카오 로그인 성공 (user_id: {user.user_id})")
-
-        # Settings 페이지로 리다이렉트
-        return RedirectResponse(url="/settings?kakao_login=success", status_code=303)
-
-    except Exception as e:
-        # 에러 로그 기록 (실패해도 계속 진행)
-        try:
-            create_log(db, "auth", "FAIL", f"카카오 로그인 실패: {str(e)}")
-        except:
-            pass
-
-        # 에러 발생 시에도 Settings 페이지로 리다이렉트
-        error_message = quote(str(e))
-        return RedirectResponse(url=f"/settings?kakao_login=error&message={error_message}", status_code=303)
-
-
-@router.get("/kakao/status")
-async def kakao_status(db: Session = Depends(get_db)):
-    """
-    카카오 인증 상태 확인
-    현재 사용자의 카카오 토큰 보유 여부 확인
-    """
-    user = get_or_create_user(db)
-
-    has_kakao_token = bool(user.kakao_access_token)
-
-    return JSONResponse(
-        content={
-            "user_id": user.user_id,
-            "kakao_authenticated": has_kakao_token,
-            "kakao_token_exists": has_kakao_token,
-        }
-    )
-
-
-@router.post("/kakao/disconnect")
-async def kakao_disconnect(db: Session = Depends(get_db)):
-    """
-    카카오 연동 해제
-    DB에서 카카오 토큰 제거
-    """
-    try:
-        user = get_or_create_user(db)
-
-        if not user.kakao_access_token:
-            raise HTTPException(status_code=400, detail="연동된 카카오톡이 없습니다")
-
-        # DB에서 카카오 토큰 제거
-        user.kakao_access_token = None
-        user.kakao_refresh_token = None
-        db.commit()
-
-        # 로그 기록
-        create_log(
-            db,
-            "auth",
-            "SUCCESS",
-            f"카카오톡 연동 해제 (user_id: {user.user_id})",
-        )
-
-        return JSONResponse(
-            content={
-                "message": "카카오톡 연동 해제 성공",
-                "user_id": user.user_id,
-            }
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        create_log(db, "auth", "FAIL", f"카카오톡 연동 해제 실패: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"연동 해제 실패: {str(e)}")
-
-
-@router.post("/kakao/refresh")
-async def kakao_refresh_token(db: Session = Depends(get_db)):
-    """
-    카카오 Access Token 갱신
-    Refresh Token을 사용하여 새로운 Access Token 발급
-    """
-    try:
-        user = get_or_create_user(db)
-
-        if not user.kakao_refresh_token:
-            raise HTTPException(status_code=400, detail="Refresh Token이 없습니다")
-
-        # 토큰 갱신
-        token_data = await kakao_auth_service.refresh_access_token(
-            user.kakao_refresh_token
-        )
-
-        new_access_token = token_data.get("access_token")
-        new_refresh_token = token_data.get("refresh_token", user.kakao_refresh_token)
-
-        # DB 업데이트
-        update_user_kakao_tokens(db, user.user_id, new_access_token, new_refresh_token)
-
-        # 로그 기록
-        create_log(db, "auth", "SUCCESS", f"카카오 토큰 갱신 성공 (user_id: {user.user_id})")
-
-        return JSONResponse(
-            content={
-                "message": "토큰 갱신 성공",
-                "user_id": user.user_id,
-            }
-        )
-
-    except Exception as e:
-        create_log(db, "auth", "FAIL", f"카카오 토큰 갱신 실패: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"토큰 갱신 실패: {str(e)}")
-
-
-@router.post("/kakao/test-message")
-async def kakao_test_message(db: Session = Depends(get_db)):
-    """
-    카카오 "나에게 보내기" 테스트
-    현재 인증된 사용자에게 테스트 메시지 발송
-    """
-    try:
-        user = get_or_create_user(db)
-
-        if not user.kakao_access_token:
-            raise HTTPException(
-                status_code=400, detail="카카오 로그인이 필요합니다"
-            )
-
-        # 테스트 메시지 발송
-        message = "🎉 My Assistant 테스트 메시지입니다!\n카카오 인증이 정상적으로 완료되었습니다."
-
-        result = await kakao_auth_service.send_message_to_me(
-            user.kakao_access_token, message
-        )
-
-        # 로그 기록
-        create_log(db, "memo", "SUCCESS", f"테스트 메시지 발송 성공 (user_id: {user.user_id})")
-
-        return JSONResponse(
-            content={
-                "message": "테스트 메시지 발송 성공",
-                "result": result,
-            }
-        )
-
-    except Exception as e:
-        create_log(db, "memo", "FAIL", f"테스트 메시지 발송 실패: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"메시지 발송 실패: {str(e)}")
 
 
 # ============================================================

@@ -116,47 +116,40 @@
     </div>
 </div>
 
-<!-- 테스트 및 미리보기 -->
+<!-- 차트 미리보기 -->
 <div class="row mb-4">
-    <div class="col-md-6 mb-3">
-        <div class="card h-100">
-            <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-lightning me-2"></i>테스트</h5>
-            </div>
-            <div class="card-body">
-                <button class="btn btn-success w-100 mb-2" onclick="testChartbot()">
-                    <i class="bi bi-send me-1"></i>즉시 테스트 발송
-                </button>
-                <p class="text-muted small mb-0">등록된 모든 종목의 차트를 즉시 텔레그램으로 발송합니다</p>
-                <div id="test-result" class="mt-3"></div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-6 mb-3">
-        <div class="card h-100">
+    <div class="col-12">
+        <div class="card">
             <div class="card-header">
                 <h5 class="mb-0"><i class="bi bi-eye me-2"></i>차트 미리보기</h5>
             </div>
             <div class="card-body">
                 <div class="row mb-2">
-                    <div class="col-5">
+                    <div class="col-md-2 mb-2">
                         <input type="text" class="form-control form-control-sm" id="preview-ticker" placeholder="AAPL">
                     </div>
-                    <div class="col-3">
+                    <div class="col-md-2 mb-2">
                         <select class="form-select form-select-sm" id="preview-market">
                             <option value="US">US</option>
                             <option value="KR">KR</option>
                         </select>
                     </div>
-                    <div class="col-4">
+                    <div class="col-md-2 mb-2">
                         <button class="btn btn-sm btn-outline-primary w-100" onclick="previewChart()">
                             <i class="bi bi-eye me-1"></i>미리보기
                         </button>
                     </div>
+                    <div class="col-md-2 mb-2">
+                        <button class="btn btn-sm btn-success w-100" id="test-send-btn" onclick="testChartbot()">
+                            <i class="bi bi-send me-1"></i>테스트 발송
+                        </button>
+                    </div>
                 </div>
+                <p class="text-muted small mb-2">종목을 입력하고 미리보기를 클릭한 후, 테스트 발송으로 텔레그램에 발송할 수 있습니다</p>
                 <div id="chart-preview" class="mt-2 text-center" style="min-height: 200px;">
                     <span class="text-muted">종목을 입력하고 미리보기를 클릭하세요</span>
                 </div>
+                <div id="test-result" class="mt-3"></div>
             </div>
         </div>
     </div>

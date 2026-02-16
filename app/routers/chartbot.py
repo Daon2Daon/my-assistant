@@ -419,20 +419,37 @@ async def remove_chartbot_ticker(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class ChartTestRequest(BaseModel):
+    """차트 테스트 발송 요청 (미리보기에서 선택한 종목)"""
+    ticker: str
+    market: str = "US"
+
+
 @router.post("/test")
-async def test_chartbot_notification():
-    """Chartbot 즉시 테스트 발송"""
+async def test_chartbot_notification(request: ChartTestRequest):
+    """차트 미리보기에서 선택한 종목의 차트를 텔레그램으로 테스트 발송"""
     try:
-        result = await chart_bot.send_all_charts()
+        ticker = request.ticker.strip().upper()
+        if not ticker:
+            raise HTTPException(status_code=400, detail="티커를 입력해주세요")
+
+        market = request.market or "US"
+        name = chart_bot._get_name(ticker, market)
+        sent = await chart_bot.send_ta_charts(ticker, market, name)
+
+        success = 1 if sent > 0 else 0
+        fail = 1 if sent == 0 else 0
 
         return JSONResponse(
             content={
                 "message": "Chartbot 테스트 발송 완료",
-                "success": result["success"],
-                "fail": result["fail"],
+                "success": success,
+                "fail": fail,
             }
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Chartbot 테스트 발송 실패: {str(e)}"

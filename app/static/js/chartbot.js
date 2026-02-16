@@ -307,15 +307,36 @@ async function toggleChartbotActive(checked) {
 }
 
 async function testChartbot() {
+    const tickerInput = document.getElementById('preview-ticker');
+    const marketSelect = document.getElementById('preview-market');
+    const ticker = tickerInput ? tickerInput.value.trim().toUpperCase() : '';
+    const market = marketSelect ? marketSelect.value : 'US';
+
+    if (!ticker) {
+        showToast('티커를 입력해주세요', 'warning');
+        return;
+    }
+
+    const btn = document.getElementById('test-send-btn');
     const resultEl = document.getElementById('test-result');
+
+    if (btn && btn.disabled) return;
+
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>발송 중...';
+    }
     resultEl.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> 발송 중...';
 
     try {
-        const data = await fetchApi('/api/chartbot/test', { method: 'POST' });
+        const data = await fetchApi('/api/chartbot/test', {
+            method: 'POST',
+            body: JSON.stringify({ ticker: ticker, market: market }),
+        });
 
         resultEl.innerHTML = `
             <div class="alert alert-success mb-0">
-                <i class="bi bi-check-circle me-1"></i>발송 완료<br>
+                <i class="bi bi-check-circle me-1"></i>발송 완료 (${ticker})<br>
                 <small>성공: ${data.success}건, 실패: ${data.fail}건</small>
             </div>
         `;
@@ -327,6 +348,11 @@ async function testChartbot() {
                 <i class="bi bi-exclamation-triangle me-1"></i>${error.message || '발송 실패'}
             </div>
         `;
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-send me-1"></i>테스트 발송';
+        }
     }
 }
 

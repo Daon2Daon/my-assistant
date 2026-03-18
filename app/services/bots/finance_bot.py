@@ -105,51 +105,64 @@ class FinanceBot:
             return None
 
     def _get_kr_stock_quote(self, ticker: str) -> Optional[Dict]:
-        """한국 종목 시세 조회"""
+        """한국 종목 시세 조회 (pykrx → yfinance fallback)"""
+        # 1차: pykrx 시도
         try:
-            # 종목 이름 조회
             name = stock.get_market_ticker_name(ticker)
-            if not name:
-                return None
-
-            # 최근 7일 데이터 조회 (휴일 및 주말 대응)
-            today = datetime.now(ZoneInfo("Asia/Seoul"))
-            end_date = today.strftime("%Y%m%d")
-            start_date = (today - timedelta(days=7)).strftime("%Y%m%d")
-
-            df = stock.get_market_ohlcv_by_date(start_date, end_date, ticker)
-
-            if df.empty:
-                return None
-
-            # 최신 데이터
-            current_price = df["종가"].iloc[-1]
-            current_volume = df["거래량"].iloc[-1]
-
-            # 전일 대비 변동
-            if len(df) >= 2:
-                previous_price = df["종가"].iloc[-2]
-                change = current_price - previous_price
-                change_percent = (change / previous_price) * 100
-            else:
-                change = 0
-                change_percent = 0
-
-            return {
-                "ticker": ticker,
-                "name": name,
-                "price": current_price,
-                "change": change,
-                "change_percent": change_percent,
-                "volume": current_volume,
-                "market_cap": None,
-            }
-
+            if name and isinstance(name, str):
+                today = datetime.now(ZoneInfo("Asia/Seoul"))
+                end_date = today.strftime("%Y%m%d")
+                start_date = (today - timedelta(days=7)).strftime("%Y%m%d")
+                df = stock.get_market_ohlcv_by_date(start_date, end_date, ticker)
+                if df is not None and not df.empty:
+                    current_price = df["종가"].iloc[-1]
+                    current_volume = df["거래량"].iloc[-1]
+                    if len(df) >= 2:
+                        previous_price = df["종가"].iloc[-2]
+                        change = current_price - previous_price
+                        change_percent = (change / previous_price) * 100
+                    else:
+                        change = 0
+                        change_percent = 0
+                    return {
+                        "ticker": ticker,
+                        "name": name,
+                        "price": current_price,
+                        "change": change,
+                        "change_percent": change_percent,
+                        "volume": current_volume,
+                        "market_cap": None,
+                    }
         except Exception as e:
-            print(f"❌ 한국 종목 조회 실패 ({ticker}): {e}")
-            import traceback
-            print(traceback.format_exc())
-            return None
+            print(f"⚠️ pykrx 한국 종목 조회 실패 ({ticker}): {e}, yfinance fallback 시도")
+
+        # 2차: yfinance fallback
+        for suffix in (".KS", ".KQ"):
+            try:
+                yf_ticker = f"{ticker}{suffix}"
+                stock_obj = yf.Ticker(yf_ticker)
+                info = stock_obj.info
+                price = info.get("currentPrice") or info.get("regularMarketPrice")
+                if not price:
+                    continue
+                prev = info.get("previousClose") or info.get("regularMarketPreviousClose", price)
+                change = price - prev
+                change_percent = (change / prev) * 100 if prev else 0
+                name = info.get("longName", info.get("shortName", ticker))
+                return {
+                    "ticker": ticker,
+                    "name": name,
+                    "price": price,
+                    "change": change,
+                    "change_percent": change_percent,
+                    "volume": info.get("volume", 0),
+                    "market_cap": info.get("marketCap"),
+                }
+            except Exception:
+                pass
+
+        print(f"❌ 한국 종목 조회 실패 ({ticker}): pykrx, yfinance 모두 실패")
+        return None
 
     def calculate_period_changes(self, ticker: str, market: str = "US") -> Optional[Dict]:
         """
@@ -309,7 +322,8 @@ class FinanceBot:
             return None
 
     def _validate_kr_ticker(self, ticker: str) -> bool:
-        """한국 시장 티커 유효성 검증 (개별 종목, ETF, ETN)"""
+        """한국 시장 티커 유효성 검증 (pykrx → yfinance fallback)"""
+        # 1차: pykrx 시도
         try:
             name = stock.get_market_ticker_name(ticker)
             if isinstance(name, str) and len(name) > 0:
@@ -327,9 +341,18 @@ class FinanceBot:
                         return True
                 except Exception:
                     pass
-            return False
         except Exception:
-            return False
+            pass
+
+        # 2차: yfinance fallback
+        for suffix in (".KS", ".KQ"):
+            try:
+                info = yf.Ticker(f"{ticker}{suffix}").info
+                if info.get("regularMarketPrice") or info.get("currentPrice"):
+                    return True
+            except Exception:
+                pass
+        return False
 
     def validate_ticker(self, ticker: str, market: str = "US") -> bool:
         """
@@ -380,21 +403,38 @@ class FinanceBot:
         """
         try:
             if market == "KR":
-                # 한국 시장 전체 종목 조회
-                tickers = stock.get_market_ticker_list(market="ALL")
                 results = []
+                # 1차: pykrx로 전체 종목 검색
+                try:
+                    tickers = stock.get_market_ticker_list(market="ALL")
+                    for ticker_code in tickers:
+                        name = stock.get_market_ticker_name(ticker_code)
+                        if keyword.upper() in ticker_code or keyword in name:
+                            results.append({
+                                "ticker": ticker_code,
+                                "name": name,
+                                "market": "KR"
+                            })
+                            if len(results) >= 20:
+                                break
+                except Exception as e:
+                    print(f"⚠️ pykrx 종목 검색 실패: {e}")
 
-                for ticker_code in tickers:
-                    name = stock.get_market_ticker_name(ticker_code)
-                    # 티커 또는 종목명에 키워드 포함 시 추가
-                    if keyword.upper() in ticker_code or keyword in name:
-                        results.append({
-                            "ticker": ticker_code,
-                            "name": name,
-                            "market": "KR"
-                        })
-                        if len(results) >= 20:  # 최대 20개
-                            break
+                # 2차: pykrx 실패 시 키워드가 6자리 숫자면 yfinance로 직접 조회
+                if not results and keyword.strip().isdigit() and len(keyword.strip()) == 6:
+                    for suffix in (".KS", ".KQ"):
+                        try:
+                            info = yf.Ticker(f"{keyword}{suffix}").info
+                            price = info.get("currentPrice") or info.get("regularMarketPrice")
+                            if price:
+                                results.append({
+                                    "ticker": keyword,
+                                    "name": info.get("longName", info.get("shortName", keyword)),
+                                    "market": "KR"
+                                })
+                                break
+                        except Exception:
+                            pass
 
                 return results
 

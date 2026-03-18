@@ -249,22 +249,36 @@ class ChartBot:
             return None
 
     def _get_kr_ohlcv(self, ticker: str, days: int = 1825) -> Optional[pd.DataFrame]:
-        """한국 종목 OHLCV 조회 (pykrx)"""
+        """한국 종목 OHLCV 조회 (pykrx → yfinance fallback)"""
+        # 1차: pykrx 시도
         try:
             today = datetime.now(ZoneInfo("Asia/Seoul"))
             end_date = today.strftime("%Y%m%d")
             start_date = (today - timedelta(days=days)).strftime("%Y%m%d")
             df = krx_stock.get_market_ohlcv_by_date(start_date, end_date, ticker)
-            if df.empty or len(df) < 20:
-                return None
-            df = df.rename(columns={
-                '시가': 'Open', '고가': 'High', '저가': 'Low',
-                '종가': 'Close', '거래량': 'Volume'
-            })
-            return df[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
+            if df is not None and not df.empty and len(df) >= 20:
+                df = df.rename(columns={
+                    '시가': 'Open', '고가': 'High', '저가': 'Low',
+                    '종가': 'Close', '거래량': 'Volume'
+                })
+                return df[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
+            print(f"⚠️ pykrx 데이터 부족 ({ticker}), yfinance fallback 시도")
         except Exception as e:
-            print(f"❌ KR 데이터 조회 실패 ({ticker}): {e}")
-            return None
+            print(f"⚠️ pykrx 조회 실패 ({ticker}): {type(e).__name__}: {e}, yfinance fallback 시도")
+
+        # 2차: yfinance fallback (.KS=KOSPI, .KQ=KOSDAQ)
+        for suffix in (".KS", ".KQ"):
+            try:
+                yf_ticker = f"{ticker}{suffix}"
+                period = "5y" if days >= 1825 else f"{days}d"
+                data = yf.download(yf_ticker, period=period, progress=False, auto_adjust=False)
+                if data is not None and not data.empty and len(data) >= 20:
+                    print(f"✅ yfinance fallback 성공: {yf_ticker}")
+                    return _normalize_columns(data.copy())
+            except Exception:
+                pass
+        print(f"❌ KR 데이터 조회 실패 ({ticker}): pykrx, yfinance 모두 실패")
+        return None
 
     def generate_chart(
         self, ticker: str, market: str = "US", days: int = 30
@@ -279,8 +293,13 @@ class ChartBot:
         self, ticker: str, market: str, days: int
     ) -> Optional[str]:
         """일봉 차트 1장 생성 (간단 호환용)"""
+        yf_period_map = {30: "1mo", 90: "3mo", 180: "6mo", 365: "1y", 1825: "5y"}
+        period_labels = {30: "1 month", 90: "3 months", 180: "6 months", 365: "1 year", 1825: "5 years"}
+        yf_period = yf_period_map.get(days, f"{days}d")
+        period_name = period_labels.get(days, f"{days} days")
+
         if market == "US":
-            df = self._get_us_ohlcv(ticker, period=f"{days}d")
+            df = self._get_us_ohlcv(ticker, period=yf_period)
         elif market == "KR":
             df = self._get_kr_ohlcv(ticker, days=days)
         else:
@@ -292,7 +311,7 @@ class ChartBot:
         filename = f"{suffix}_{market}_daily_{uuid.uuid4().hex[:8]}.png"
         filepath = os.path.join(self.charts_dir, filename)
         name = self._get_name(ticker, market)
-        _create_ta_chart(df, ticker, name, 'daily', f'{days} days', filepath)
+        _create_ta_chart(df, ticker, name, 'daily', period_name, filepath)
         return f"charts/{filename}"
 
     def generate_ta_charts(
@@ -340,18 +359,20 @@ class ChartBot:
         return results
 
     def _get_name(self, ticker: str, market: str) -> str:
-        """종목명 조회 (개별 종목, ETF, ETN 지원)"""
+        """종목명 조회 (개별 종목, ETF, ETN 지원, yfinance fallback)"""
         if market == "US":
             try:
                 info = yf.Ticker(ticker).info
                 return info.get("longName", info.get("shortName", ticker))
-            except Exception:
+            except Exception as e:
+                print(f"⚠️ US 종목명 조회 실패 ({ticker}): {e}")
                 return ticker
+
+        # 1차: pykrx 시도
         try:
             name = krx_stock.get_market_ticker_name(ticker)
             if isinstance(name, str) and len(name) > 0:
                 return name
-            # ETF/ETN: get_market_ticker_name이 DataFrame 또는 빈값 반환 시
             for getter in (krx_stock.get_etf_ticker_name, krx_stock.get_etn_ticker_name):
                 try:
                     n = getter(ticker)
@@ -359,8 +380,19 @@ class ChartBot:
                         return n
                 except Exception:
                     pass
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️ pykrx 종목명 조회 실패 ({ticker}): {e}")
+
+        # 2차: yfinance fallback
+        for suffix in (".KS", ".KQ"):
+            try:
+                info = yf.Ticker(f"{ticker}{suffix}").info
+                name = info.get("longName", info.get("shortName", ""))
+                if name:
+                    return name
+            except Exception:
+                pass
+
         return ticker
 
     def get_chart_image_url(self, relative_path: str) -> str:
@@ -473,7 +505,10 @@ class ChartBot:
             for item in tickers:
                 ticker = item.get("ticker") if isinstance(item, dict) else str(item)
                 market = item.get("market", "US") if isinstance(item, dict) else "US"
-                name = self._get_name(ticker, market)
+                # DB에 저장된 name 우선 사용
+                name = item.get("name", "") if isinstance(item, dict) else ""
+                if not name:
+                    name = self._get_name(ticker, market)
 
                 sent = await self.send_ta_charts(ticker, market, name)
                 if sent > 0:
@@ -527,6 +562,7 @@ def chartbot_dispatcher_sync():
         for item in tickers:
             t = item.get("ticker") if isinstance(item, dict) else item
             m = item.get("market", "US") if isinstance(item, dict) else "US"
+            n = item.get("name", "") if isinstance(item, dict) else ""
             nt = item.get("notification_time", "09:00") if isinstance(item, dict) else "09:00"
             nd = item.get("notification_days", [0, 1, 2, 3, 4]) if isinstance(item, dict) else [0, 1, 2, 3, 4]
             if not isinstance(nd, list):
@@ -538,7 +574,7 @@ def chartbot_dispatcher_sync():
                 continue
             if nt == current_time and current_weekday in nd:
                 try:
-                    send_chart_ticker_sync(t, m)
+                    send_chart_ticker_sync(t, m, n)
                 except Exception as e:
                     print(f"❌ Chartbot 종목 발송 실패 ({t}): {e}")
     finally:
@@ -551,14 +587,15 @@ def send_chartbot_notification_sync():
     asyncio.run(ChartBot().send_all_charts())
 
 
-def send_chart_ticker_sync(ticker: str, market: str) -> bool:
+def send_chart_ticker_sync(ticker: str, market: str, name: str = "") -> bool:
     """
     스케줄러에서 호출 - 특정 종목 차트만 발송
     종목별 발송 시간에 맞춰 호출됨
     """
     import asyncio
     bot = ChartBot()
-    name = bot._get_name(ticker, market)
+    if not name:
+        name = bot._get_name(ticker, market)
     return asyncio.run(bot.send_ta_charts(ticker, market, name)) > 0
 
 

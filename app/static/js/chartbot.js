@@ -361,6 +361,9 @@ async function previewChart() {
     const ticker = tickerInput.value.trim().toUpperCase();
     const marketSelect = document.getElementById('preview-market');
     const market = marketSelect ? marketSelect.value : 'US';
+    const periodSelect = document.getElementById('preview-period');
+    const days = periodSelect ? periodSelect.value : '30';
+    const periodLabel = periodSelect ? periodSelect.options[periodSelect.selectedIndex].text : '1개월';
 
     if (!ticker) {
         showToast('티커를 입력해주세요', 'warning');
@@ -371,11 +374,11 @@ async function previewChart() {
     previewEl.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
 
     try {
-        const data = await fetchApi(`/api/chartbot/preview/${encodeURIComponent(ticker)}?market=${market}`);
+        const data = await fetchApi(`/api/chartbot/preview/${encodeURIComponent(ticker)}?market=${market}&days=${days}`);
 
         previewEl.innerHTML = `
             <img src="${data.chart_path}" alt="${ticker} chart" class="img-fluid" style="max-height: 300px;">
-            <p class="text-muted small mt-2 mb-0">${ticker} (${market}) - 최근 30일</p>
+            <p class="text-muted small mt-2 mb-0">${ticker} (${market}) - 최근 ${periodLabel}</p>
         `;
     } catch (error) {
         previewEl.innerHTML = `

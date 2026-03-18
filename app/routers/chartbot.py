@@ -128,19 +128,34 @@ async def get_chartbot_status(db: Session = Depends(get_db)):
         last_log = logs[0] if logs else None
 
         # 기존 ticker에 notification_time, notification_days, name 없으면 기본값 추가
+        name_updated = False
         for t in tickers:
             if isinstance(t, dict):
                 if "notification_time" not in t:
                     t["notification_time"] = "09:00"
                 if "notification_days" not in t:
                     t["notification_days"] = [0, 1, 2, 3, 4]
-                if "name" not in t:
+                if not t.get("name"):
                     try:
-                        t["name"] = chart_bot._get_name(
+                        resolved = chart_bot._get_name(
                             t.get("ticker", ""), t.get("market", "US")
                         )
+                        if resolved and resolved != t.get("ticker", ""):
+                            t["name"] = resolved
+                            name_updated = True
+                        else:
+                            t["name"] = ""
                     except Exception:
-                        t["name"] = t.get("ticker", "")
+                        t["name"] = ""
+
+        # 종목명이 새로 조회된 경우 DB에 반영
+        if name_updated and setting and setting.config_json:
+            try:
+                save_config = json.loads(setting.config_json)
+                save_config["tickers"] = tickers
+                update_setting(db, setting.setting_id, config_json=json.dumps(save_config))
+            except Exception:
+                pass
 
         return JSONResponse(
             content={
@@ -276,9 +291,19 @@ async def add_chartbot_ticker(
                     status_code=400, detail="이미 등록된 종목입니다"
                 )
 
+        # 종목명 조회하여 DB에 함께 저장 (pykrx 장애 시에도 이름 표시 가능)
+        ticker_name = ""
+        try:
+            ticker_name = chart_bot._get_name(request.ticker, request.market)
+            if ticker_name == request.ticker:
+                ticker_name = ""  # 조회 실패 시 빈 문자열
+        except Exception:
+            pass
+
         tickers.append({
             "ticker": request.ticker,
             "market": request.market,
+            "name": ticker_name,
             "notification_time": request.notification_time or "09:00",
             "notification_days": request.notification_days if request.notification_days else [],
         })
@@ -469,14 +494,17 @@ async def get_ticker_name(ticker: str, market: str = "US"):
 
 
 @router.get("/preview/{ticker}")
-async def preview_chart(ticker: str, market: str = "US"):
+async def preview_chart(ticker: str, market: str = "US", days: int = 30):
     """차트 미리보기 - 이미지 경로 반환"""
     try:
-        chart_path = chart_bot.generate_chart(ticker, market)
+        if days not in (30, 90, 180, 365, 1825):
+            days = 30
+        chart_path = chart_bot.generate_chart(ticker, market, days=days)
         if not chart_path:
-            raise HTTPException(
-                status_code=500, detail=f"차트 생성 실패: {ticker}"
-            )
+            detail = f"차트 생성 실패: {ticker}"
+            if market == "KR":
+                detail += " (KRX 데이터 조회 실패 - pykrx 연결 상태 확인 필요)"
+            raise HTTPException(status_code=500, detail=detail)
 
         # 상대 URL 반환 (프론트에서 /static/charts/xxx 로 표시)
         return JSONResponse(

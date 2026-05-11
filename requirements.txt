@@ -4,6 +4,14 @@ uvicorn[standard]>=0.27.0
 
 # Database
 sqlalchemy>=2.0.0
+psycopg[binary]>=3.1.18
+asyncpg>=0.29.0
+
+# YouTube monitor / AI Gateway (P1+)
+openai>=1.40.0
+cryptography>=42.0.0
+youtube-transcript-api>=0.6.2
+isodate>=0.6.1
 
 # Scheduler
 apscheduler>=3.10.0

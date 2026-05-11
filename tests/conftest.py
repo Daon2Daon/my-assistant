@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import Base
 from app.models import User, Setting, Reminder, Log
+from app.models.youtube_setting import YoutubeSetting  # noqa: F401 — Base 메타데이터 등록
 
 
 # 테스트용 SQLite 데이터베이스 (공유 메모리 모드로 연결 간 데이터 공유)

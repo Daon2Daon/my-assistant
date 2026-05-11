@@ -1,0 +1,147 @@
+/** YouTube Monitor 설정 API 클라이언트 */
+
+const BASE = '/api/youtube/settings'
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const resp = await fetch(`${BASE}${path}`, {
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json', ...init?.headers },
+    ...init,
+  })
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => ({ detail: resp.statusText }))
+    throw new Error(detail?.detail ?? resp.statusText)
+  }
+  return resp.json()
+}
+
+// ── 타입 ─────────────────────────────────────────────────────────────────────
+
+export interface DatabaseSettingsResponse {
+  host: string
+  port: number
+  dbname: string
+  username: string
+  password_masked: string
+  schema_name: string
+  sslmode: string
+  is_configured: boolean
+}
+
+export interface DatabaseSettingsUpdate {
+  host?: string
+  port?: number
+  dbname?: string
+  username?: string
+  password?: string
+  schema_name?: string
+  sslmode?: string
+}
+
+export interface AIGatewaySettingsResponse {
+  base_url: string
+  api_key_masked: string
+  primary_model: string
+  fallback_model: string
+  tagging_model: string
+  temperature: number
+  max_tokens: number
+  daily_budget_usd: number
+}
+
+export interface AIGatewaySettingsUpdate {
+  base_url?: string
+  api_key?: string
+  primary_model?: string
+  fallback_model?: string
+  tagging_model?: string
+  temperature?: number
+  max_tokens?: number
+  daily_budget_usd?: number
+}
+
+export interface ModelInfo {
+  model_id: string
+  provider?: string
+}
+
+export interface RuntimeSettingsResponse {
+  master_interval_min: number
+  default_channel_interval_min: number
+  youtube_api_key_masked: string
+  youtube_daily_quota: number
+  window_hours: number
+  max_concurrent_channels: number
+  max_concurrent_analyses: number
+  telegram_enabled: boolean
+  wait_between_messages_sec: number
+  low_confidence_threshold: number
+}
+
+export interface RuntimeSettingsUpdate {
+  master_interval_min?: number
+  default_channel_interval_min?: number
+  youtube_api_key?: string
+  youtube_daily_quota?: number
+  window_hours?: number
+  max_concurrent_channels?: number
+  max_concurrent_analyses?: number
+  telegram_enabled?: boolean
+  wait_between_messages_sec?: number
+  low_confidence_threshold?: number
+}
+
+export interface ConnectionTestResponse {
+  success: boolean
+  message: string
+  latency_ms?: number
+}
+
+export interface SchemaApplyResponse {
+  success: boolean
+  message: string
+  migration_version?: string
+}
+
+export interface GatewayTestAnalyzeResponse {
+  success: boolean
+  message: string
+  model_used?: string
+  latency_ms?: number
+}
+
+// ── 데이터베이스 설정 API ─────────────────────────────────────────────────────
+
+export const dbSettingsApi = {
+  get: () => request<DatabaseSettingsResponse>('/database'),
+  update: (body: DatabaseSettingsUpdate) =>
+    request<DatabaseSettingsResponse>('/database', { method: 'PUT', body: JSON.stringify(body) }),
+  testConnection: () =>
+    request<ConnectionTestResponse>('/database/test_connection', { method: 'POST' }),
+  applySchema: () =>
+    request<SchemaApplyResponse>('/database/apply_schema', { method: 'POST' }),
+  health: () =>
+    request<{ healthy: boolean; message: string; latency_ms?: number }>('/database/health'),
+}
+
+// ── AI Gateway 설정 API ───────────────────────────────────────────────────────
+
+export const aiGatewayApi = {
+  get: () => request<AIGatewaySettingsResponse>('/ai_gateway'),
+  update: (body: AIGatewaySettingsUpdate) =>
+    request<AIGatewaySettingsResponse>('/ai_gateway', { method: 'PUT', body: JSON.stringify(body) }),
+  testConnection: () =>
+    request<ConnectionTestResponse>('/ai_gateway/test_connection', { method: 'POST' }),
+  testAnalyze: () =>
+    request<GatewayTestAnalyzeResponse>('/ai_gateway/test_analyze', { method: 'POST' }),
+  listModels: () =>
+    request<{ models: ModelInfo[] }>('/ai_gateway/models'),
+}
+
+// ── 런타임 설정 API ───────────────────────────────────────────────────────────
+
+export const runtimeApi = {
+  get: () => request<RuntimeSettingsResponse>('/runtime'),
+  update: (body: RuntimeSettingsUpdate) =>
+    request<RuntimeSettingsResponse>('/runtime', { method: 'PUT', body: JSON.stringify(body) }),
+}

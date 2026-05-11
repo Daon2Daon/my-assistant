@@ -10,7 +10,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.config import settings
 from app.database import init_db, run_migrations
 from app.middleware import AuthMiddleware
-from app.routers import auth, scheduler, reminders, pages, settings as settings_router, logs, weather, finance, calendar, chartbot
+from app.routers import auth, scheduler, reminders, pages, settings as settings_router, logs, weather, finance, calendar, chartbot, youtube as youtube_router
 from app.services.scheduler import scheduler_service
 from app.services.bots.memo_bot import memo_bot
 
@@ -50,6 +50,7 @@ app.include_router(weather.router)
 app.include_router(finance.router)
 app.include_router(calendar.router)
 app.include_router(chartbot.router)
+app.include_router(youtube_router.router)
 
 # Pages 라우터 (페이지 렌더링) - 마지막에 등록
 app.include_router(pages.router)
@@ -82,6 +83,12 @@ async def startup_event():
 
     # 스케줄러 시작
     scheduler_service.start()
+
+    # YouTube 모니터 Job 등록
+    try:
+        scheduler_service.setup_youtube_jobs()
+    except Exception as e:
+        print(f"⚠️  YouTube Job 등록 실패: {e}")
 
     # Weather 알림 Job 등록
     try:

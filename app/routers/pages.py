@@ -3,8 +3,10 @@ Pages 라우터
 모든 Web UI 페이지 렌더링 통합 관리
 """
 
+from pathlib import Path
+
 from fastapi import APIRouter, Request, Depends, Query
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -126,6 +128,22 @@ async def settings_page(request: Request):
         "settings.html",
         {"request": request, "active_page": "settings"}
     )
+
+
+_YOUTUBE_SPA = Path(__file__).resolve().parents[2] / "app" / "static" / "youtube" / "index.html"
+
+
+@router.get("/youtube", include_in_schema=False)
+@router.get("/youtube/{full_path:path}", include_in_schema=False)
+async def youtube_spa(full_path: str = ""):
+    """
+    YouTube Monitor SPA 셸 서빙.
+    React Router가 클라이언트 사이드 라우팅을 처리하므로
+    /youtube/ 로 시작하는 모든 경로에서 같은 index.html 반환.
+    """
+    if _YOUTUBE_SPA.exists():
+        return FileResponse(str(_YOUTUBE_SPA), media_type="text/html")
+    return HTMLResponse("<h1>YouTube Monitor UI를 빌드해 주세요.</h1><p>frontend/youtube/ 에서 <code>npm run build</code> 실행</p>", status_code=503)
 
 
 @router.get("/api/dashboard/auth-status")

@@ -9,5 +9,14 @@ from app.models.reminder import Reminder
 from app.models.log import Log
 from app.models.watchlist import Watchlist
 from app.models.price_alert import PriceAlert
+from app.models.youtube_setting import YoutubeSetting
 
-__all__ = ["User", "Setting", "Reminder", "Log", "Watchlist", "PriceAlert"]
+__all__ = [
+    "User",
+    "Setting",
+    "Reminder",
+    "Log",
+    "Watchlist",
+    "PriceAlert",
+    "YoutubeSetting",
+]

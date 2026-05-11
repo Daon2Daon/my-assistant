@@ -508,6 +508,56 @@ class SchedulerService:
         except Exception as e:
             print(f"❌ Finance Job 업데이트 실패: {e}")
 
+    def setup_youtube_jobs(self):
+        """
+        YouTube 모니터 Job 설정.
+        - youtube_master_poll: master_interval_min 마다 실행 (기본 12분)
+        - youtube_gateway_health: 5분 주기 litellm 헬스체크
+        설정 DB가 없거나 미설정 상태여도 예외 없이 종료 (DB 설정 후 재기동 대비).
+        """
+        from app.services.youtube.monitor_service import (
+            youtube_master_poll_sync,
+            youtube_gateway_health_sync,
+        )
+
+        try:
+            from app.services.youtube.settings_manager import get_youtube_settings_manager
+            mgr = get_youtube_settings_manager()
+            polling_cfg = mgr.get_polling()
+            interval_min = int(polling_cfg.master_interval_min or 12)
+        except Exception:
+            interval_min = 12
+
+        try:
+            self.add_interval_job(
+                func=youtube_master_poll_sync,
+                job_id="youtube_master_poll",
+                minutes=interval_min,
+            )
+            print(f"✅ YouTube 마스터 폴링 Job 등록: {interval_min}분마다 실행")
+        except Exception as e:
+            print(f"❌ YouTube 마스터 폴링 Job 등록 실패: {e}")
+
+        try:
+            self.add_interval_job(
+                func=youtube_gateway_health_sync,
+                job_id="youtube_gateway_health",
+                minutes=5,
+            )
+            print("✅ YouTube Gateway 헬스체크 Job 등록: 5분마다 실행")
+        except Exception as e:
+            print(f"❌ YouTube Gateway 헬스체크 Job 등록 실패: {e}")
+
+    def update_youtube_master_poll_job(self):
+        """
+        polling.master_interval_min 변경 시 마스터 폴링 잡 재등록.
+        """
+        try:
+            self.remove_job("youtube_master_poll")
+            self.setup_youtube_jobs()
+        except Exception as e:
+            print(f"❌ YouTube 마스터 폴링 Job 업데이트 실패: {e}")
+
 
 # 싱글톤 인스턴스
 scheduler_service = SchedulerService()

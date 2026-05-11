@@ -1,6 +1,18 @@
 # My Assistant Dockerfile
-# Python 3.10 slim 이미지 기반
+# Stage 1: Node.js 20 - YouTube Monitor UI 빌드
+FROM node:20-slim AS frontend-builder
 
+WORKDIR /frontend
+
+# package.json 먼저 복사해서 캐시 활용
+COPY frontend/youtube/package*.json ./
+RUN npm ci --ignore-scripts
+
+# 소스 복사 후 빌드
+COPY frontend/youtube/ ./
+RUN npm run build
+
+# Stage 2: Python 3.10 slim - 메인 애플리케이션
 FROM python:3.10-slim
 
 # 환경변수 설정
@@ -23,6 +35,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 애플리케이션 코드 복사
 COPY . .
+
+# Stage 1에서 빌드된 React 정적 파일 복사
+# vite.config.ts의 outDir: path.resolve(__dirname, '../../app/static/youtube') 기준
+COPY --from=frontend-builder /app/static/youtube/ ./app/static/youtube/
 
 # 데이터 디렉토리 생성
 RUN mkdir -p /app/data

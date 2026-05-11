@@ -209,7 +209,117 @@ CREATE TABLE IF NOT EXISTS logs (
 | ✗ | ✓ | Telegram만 발송 |
 | ✗ | ✗ | 발송 실패 (로그 기록) |
 
-## 7. 추가 문서
+---
+
+## 8. YouTube 자동 모니터링 모듈
+
+YouTube 채널의 신규 영상을 자동으로 감지하고 AI로 분석하여 Telegram 알림을 발송하는 모듈입니다.
+
+### 8.1 주요 기능
+
+- YouTube Data API v3 기반 채널 정기 폴링 (채널별 폴링 주기 설정 가능)
+- Gemini 멀티모달(경로 A) / 자막 기반 텍스트 분석(경로 B) 이중화 파이프라인
+- litellm AI Gateway를 통한 LLM 요청 중앙화 (OpenAI 호환)
+- 분석 결과 Telegram 알림 발송 (HTML 포맷, 신뢰도 낮은 영상 표시)
+- PostgreSQL 기반 데이터 저장 (채널, 영상, 분석 결과, 태그)
+- React 기반 웹 UI (`/youtube/`) - 채널 관리, 영상 목록, 분석 결과 열람, 설정
+
+### 8.2 신규 설치 (첫 번째 실행)
+
+아래 7단계에 따라 최소 ENV 설정으로 시작한 뒤 웹 UI에서 나머지를 구성합니다.
+
+**Step 1. Fernet 암호화 키 생성**
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+**Step 2. `.env` 파일에 필수 항목 설정**
+
+```dotenv
+# 필수: Fernet 키 (Settings 암호화)
+YOUTUBE_SETTINGS_FERNET_KEY=<Step 1 결과>
+
+# 선택: 부트스트랩 - 최초 실행 시 한 번만 적용됩니다
+YOUTUBE_BOOTSTRAP_YOUTUBE_API_KEY=<YouTube Data API v3 키>
+YOUTUBE_BOOTSTRAP_PG_HOST=<PostgreSQL 호스트>
+YOUTUBE_BOOTSTRAP_PG_PORT=5432
+YOUTUBE_BOOTSTRAP_PG_DBNAME=<DB 이름>
+YOUTUBE_BOOTSTRAP_PG_USER=<DB 사용자>
+YOUTUBE_BOOTSTRAP_PG_PASSWORD=<DB 비밀번호>
+YOUTUBE_BOOTSTRAP_LITELLM_BASE_URL=<litellm Gateway URL>
+YOUTUBE_BOOTSTRAP_LITELLM_API_KEY=<litellm API 키>
+```
+
+**Step 3. 애플리케이션 시작**
+
+```bash
+docker compose up -d
+# 또는 로컬 개발
+uvicorn app.main:app --reload
+```
+
+**Step 4. DB 스키마 적용**
+
+웹 브라우저에서 `http://localhost:8000/youtube/settings/database` 접속 →  
+"스키마 적용" 버튼 클릭 (youtube 스키마 및 테이블 생성)
+
+**Step 5. AI Gateway 연결 확인**
+
+`/youtube/settings/ai-gateway` → "연결 테스트" 버튼으로 litellm 응답 확인
+
+**Step 6. 채널 등록**
+
+`/youtube/channels` → YouTube 채널 URL 또는 핸들 입력 후 "추가"
+
+**Step 7. 첫 폴링 실행**
+
+채널 목록에서 "지금 폴링" 버튼 클릭 → 신규 영상 감지 → 자동 분석 시작
+
+### 8.3 주요 환경변수
+
+| 변수명 | 설명 | 필수 |
+|--------|------|------|
+| `YOUTUBE_SETTINGS_FERNET_KEY` | SQLite settings 테이블 암호화 키 | 필수 |
+| `YOUTUBE_BOOTSTRAP_YOUTUBE_API_KEY` | YouTube Data API v3 키 (최초 시드) | 권장 |
+| `YOUTUBE_BOOTSTRAP_PG_HOST` | PostgreSQL 호스트 (최초 시드) | 권장 |
+| `YOUTUBE_BOOTSTRAP_LITELLM_BASE_URL` | litellm Gateway 기본 URL (최초 시드) | 권장 |
+
+나머지 설정은 웹 UI `/youtube/settings/` 에서 변경 가능합니다.
+
+### 8.4 트러블슈팅
+
+**PostgreSQL 권한 오류**
+
+```sql
+GRANT ALL PRIVILEGES ON SCHEMA youtube TO <user>;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA youtube TO <user>;
+```
+
+**Fernet 키 오류 (InvalidToken)**
+
+키가 변경되면 기존 암호화된 값을 복호화할 수 없습니다.  
+`youtube_settings` 테이블에서 `value_enc` 컬럼이 있는 행을 초기화한 뒤 재설정하세요.
+
+**YouTube API 쿼터 초과 (403)**
+
+기본 일일 쿼터는 10,000 유닛입니다.  
+`/youtube/settings/runtime` → "일일 쿼터" 값을 실제 할당량에 맞게 설정하거나  
+Google Cloud Console에서 쿼터 증가 요청을 합니다.
+
+**litellm Gateway 모델 목록 없음**
+
+`/youtube/settings/ai-gateway` → "연결 테스트" 후 모델 목록이 비어있으면  
+`primary_model` / `fallback_model` 필드에 직접 모델명을 입력하세요.
+
+### 8.5 관련 문서
+
+- [기능 명세서](docs/youtube_monitor_spec.md)
+- [구현 단계 계획서](docs/youtube_monitor_plan.md)
+
+---
+
+## 9. 추가 문서
 
 * [Telegram 설정 및 테스트 가이드](docs/telegram-setup-guide.md)
 * [UI 구조 개편 계획서](docs/restructuringplan.md)

@@ -37,8 +37,9 @@ async def login_page(request: Request, error: str = Query(None)):
 
     # 로그인 페이지 렌더링
     return templates.TemplateResponse(
-        "login.html",
-        {"request": request, "error": error}
+        request=request,
+        name="login.html",
+        context={"request": request, "error": error},
     )
 
 
@@ -48,8 +49,9 @@ async def home_page(request: Request):
     홈 페이지 - 시스템 상태 개요
     """
     return templates.TemplateResponse(
-        "home.html",
-        {"request": request, "active_page": "home"}
+        request=request,
+        name="home.html",
+        context={"request": request, "active_page": "home"},
     )
 
 
@@ -59,8 +61,9 @@ async def weather_page(request: Request):
     날씨 알림 관리 페이지
     """
     return templates.TemplateResponse(
-        "weather.html",
-        {"request": request, "active_page": "weather"}
+        request=request,
+        name="weather.html",
+        context={"request": request, "active_page": "weather"},
     )
 
 
@@ -70,8 +73,9 @@ async def finance_page(request: Request):
     금융 알림 관리 페이지
     """
     return templates.TemplateResponse(
-        "finance.html",
-        {"request": request, "active_page": "finance"}
+        request=request,
+        name="finance.html",
+        context={"request": request, "active_page": "finance"},
     )
 
 
@@ -81,8 +85,9 @@ async def chartbot_page(request: Request):
     Chartbot - 종목 차트 정기 발송 관리 페이지
     """
     return templates.TemplateResponse(
-        "chartbot.html",
-        {"request": request, "active_page": "chartbot"}
+        request=request,
+        name="chartbot.html",
+        context={"request": request, "active_page": "chartbot"},
     )
 
 
@@ -92,8 +97,9 @@ async def calendar_page(request: Request):
     캘린더 알림 관리 페이지
     """
     return templates.TemplateResponse(
-        "calendar.html",
-        {"request": request, "active_page": "calendar"}
+        request=request,
+        name="calendar.html",
+        context={"request": request, "active_page": "calendar"},
     )
 
 
@@ -103,8 +109,9 @@ async def reminders_page(request: Request):
     예약 메모 관리 페이지
     """
     return templates.TemplateResponse(
-        "reminders.html",
-        {"request": request, "active_page": "reminders"}
+        request=request,
+        name="reminders.html",
+        context={"request": request, "active_page": "reminders"},
     )
 
 
@@ -114,8 +121,9 @@ async def logs_page(request: Request):
     전체 로그 조회 페이지
     """
     return templates.TemplateResponse(
-        "logs.html",
-        {"request": request, "active_page": "logs"}
+        request=request,
+        name="logs.html",
+        context={"request": request, "active_page": "logs"},
     )
 
 
@@ -125,8 +133,9 @@ async def settings_page(request: Request):
     전역 설정 및 인증 관리 페이지
     """
     return templates.TemplateResponse(
-        "settings.html",
-        {"request": request, "active_page": "settings"}
+        request=request,
+        name="settings.html",
+        context={"request": request, "active_page": "settings"},
     )
 
 

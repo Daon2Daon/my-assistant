@@ -150,6 +150,8 @@ class PollingSettings:
     window_hours: int = 24
     max_concurrent_channels: int = 5
     max_concurrent_analyses: int = 3
+    # Gemini 무료 티어 등 분당 호출 제한 대응: 영상 분석 사이 대기 시간(초)
+    analysis_interval_sec: int = 120
 
     @classmethod
     def from_rows(cls, rows: list[YoutubeSetting], fernet: Fernet | None) -> PollingSettings:
@@ -167,6 +169,9 @@ class PollingSettings:
             ),
             max_concurrent_analyses=int(
                 _row_typed(by_key.get("max_concurrent_analyses"), fernet) or 3
+            ),
+            analysis_interval_sec=int(
+                _row_typed(by_key.get("analysis_interval_sec"), fernet) or 120
             ),
         )
 

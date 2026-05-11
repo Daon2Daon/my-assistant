@@ -167,29 +167,28 @@ async def add_channel(
             detail="YouTube API 키가 설정되지 않았습니다.",
         )
 
-    client = YouTubeAPIClient(api_key=poll_cfg.youtube_api_key)
+    client = YouTubeAPIClient(polling=poll_cfg)
     try:
-        channel_id = await client.resolve_channel(body.channel_input)
-        meta = await client.get_channel_meta(channel_id)
+        meta = await client.resolve_channel(body.channel_input)
     except YouTubeAPIError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     existing = await session.execute(
-        select(YoutubeChannel).where(YoutubeChannel.channel_id == channel_id)
+        select(YoutubeChannel).where(YoutubeChannel.channel_id == meta.channel_id)
     )
     if existing.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"이미 등록된 채널입니다: {channel_id}",
+            detail=f"이미 등록된 채널입니다: {meta.channel_id}",
         )
 
     channel = YoutubeChannel(
-        channel_id=channel_id,
-        channel_name=meta.get("title", channel_id),
-        channel_handle=meta.get("handle"),
-        upload_playlist_id=meta.get("upload_playlist_id", ""),
-        thumbnail_url=meta.get("thumbnail_url"),
-        description=meta.get("description"),
+        channel_id=meta.channel_id,
+        channel_name=meta.channel_name,
+        channel_handle=meta.channel_handle,
+        upload_playlist_id=meta.upload_playlist_id,
+        thumbnail_url=meta.thumbnail_url,
+        description=meta.description,
         category=body.category,
         poll_interval_min=body.poll_interval_min,
         notify_enabled=body.notify_enabled,
@@ -262,12 +261,40 @@ async def trigger_channel_poll(
 
 
 async def _trigger_channel_poll(channel_pk: int) -> None:
-    """백그라운드에서 단일 채널 폴링 실행."""
-    from app.services.youtube.monitor_service import MonitorService
+    """백그라운드에서 단일 채널 폴링 실행 (첫 폴링 시 24시간 window 적용)."""
+    from app.services.youtube.db_engine import db_engine_manager, DBNotConfiguredError
+    from app.services.youtube.monitor_service import MonitorService, _analyze_batch
+    from app.services.youtube.settings_manager import get_youtube_settings_manager
+    from app.services.youtube.youtube_api import get_youtube_api_client
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
-    monitor = MonitorService()
     try:
-        await monitor.process_channel(channel_pk)
+        mgr = get_youtube_settings_manager()
+        polling_cfg = mgr.get_polling()
+        engine = await db_engine_manager.get_engine()
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        service = MonitorService(polling=polling_cfg)
+        api_client = get_youtube_api_client(polling=polling_cfg)
+
+        async with session_factory() as sess:
+            async with sess.begin():
+                channel = await sess.get(YoutubeChannel, channel_pk)
+                if not channel:
+                    return
+                new_pks = await service.process_channel(
+                    channel=channel,
+                    session=sess,
+                    api_client=api_client,
+                )
+
+        await api_client.aclose()
+
+        if new_pks:
+            analysis_sem = asyncio.Semaphore(int(polling_cfg.max_concurrent_analyses or 3))
+            await _analyze_batch(new_pks, analysis_sem, polling_cfg)
+
+    except DBNotConfiguredError:
+        print(f"⚠️  즉시 폴링 SKIP — PostgreSQL 미설정 (channel_pk={channel_pk})")
     except Exception as exc:
         print(f"⚠️  즉시 폴링 실패 (channel_pk={channel_pk}): {exc}")
 
@@ -453,9 +480,71 @@ async def _trigger_reanalyze(video_pk: int) -> None:
         pipeline = build_analysis_pipeline(notify_callback=notify_video_callback)
         async with factory() as sess:
             async with sess.begin():
-                await pipeline.run_and_save(session=sess, video_pk=video_pk)
+                video = await sess.get(YoutubeVideo, video_pk)
+                if not video:
+                    print(f"⚠️  재분석 대상 영상 없음 (video_pk={video_pk})")
+                    return
+
+                ch_result = await sess.execute(
+                    select(YoutubeChannel).where(YoutubeChannel.channel_pk == video.channel_pk)
+                )
+                channel = ch_result.scalar_one_or_none()
+
+                await pipeline.run_and_save(
+                    session=sess,
+                    video_pk=video_pk,
+                    video_url=video.video_url,
+                    channel_name=channel.channel_name if channel else "",
+                    published_at_str=video.published_at.isoformat(),
+                )
     except Exception as exc:
         print(f"⚠️  재분석 실패 (video_pk={video_pk}): {exc}")
+
+
+@router.post(
+    "/videos/reanalyze-failed",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=PollTriggerResponse,
+)
+async def reanalyze_failed_videos(
+    limit: int = Query(20, ge=1, le=100, description="한 번에 재분석할 최대 영상 수"),
+    session: AsyncSession = Depends(get_pg_session),
+):
+    """failed 상태 영상 일괄 재분석 트리거."""
+    result = await session.execute(
+        select(YoutubeVideo)
+        .where(YoutubeVideo.analysis_status == "failed")
+        .order_by(YoutubeVideo.updated_at.asc())
+        .limit(limit)
+    )
+    videos = result.scalars().all()
+
+    if not videos:
+        return PollTriggerResponse(
+            job_id=str(uuid.uuid4()),
+            message="재분석 대상 영상이 없습니다 (failed 상태 없음).",
+        )
+
+    video_pks = [v.video_pk for v in videos]
+    await session.execute(
+        update(YoutubeVideo)
+        .where(YoutubeVideo.video_pk.in_(video_pks))
+        .values(
+            analysis_status="pending",
+            retry_count=0,
+            analysis_error=None,
+            updated_at=datetime.now(timezone.utc),
+        )
+    )
+
+    for pk in video_pks:
+        asyncio.create_task(_trigger_reanalyze(pk))
+
+    job_id = str(uuid.uuid4())
+    return PollTriggerResponse(
+        job_id=job_id,
+        message=f"{len(video_pks)}개 영상 재분석 요청이 접수되었습니다. (video_pks={video_pks})",
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -740,14 +829,14 @@ async def test_ai_gateway_connection():
 
     mgr = get_youtube_settings_manager()
     g = mgr.get_ai_gateway()
-    client = LiteLLMClient(base_url=g.base_url, api_key=g.api_key)
+    client = LiteLLMClient(settings=g)
     try:
         t0 = time.monotonic()
         models = await client.get_models(force_refresh=True)
         latency_ms = int((time.monotonic() - t0) * 1000)
         return ConnectionTestResponse(
             success=True,
-            message=f"연결 성공 — 모델 {len(models)}개 확인",
+            message=f"연결 성공 — 모델 {len(models.models)}개 확인",
             latency_ms=latency_ms,
         )
     except Exception as exc:
@@ -761,7 +850,7 @@ async def test_ai_gateway_analyze():
 
     mgr = get_youtube_settings_manager()
     g = mgr.get_ai_gateway()
-    client = LiteLLMClient(base_url=g.base_url, api_key=g.api_key)
+    client = LiteLLMClient(settings=g)
     try:
         t0 = time.monotonic()
         result = await client.chat(
@@ -787,12 +876,11 @@ async def list_ai_gateway_models():
 
     mgr = get_youtube_settings_manager()
     g = mgr.get_ai_gateway()
-    client = LiteLLMClient(base_url=g.base_url, api_key=g.api_key)
+    client = LiteLLMClient(settings=g)
     try:
-        models = await client.get_models()
+        gateway_mr = await client.get_models()
         return ModelsResponse(
-            models=[ModelInfo(model_id=m.get("id", m) if isinstance(m, dict) else str(m))
-                    for m in models]
+            models=[ModelInfo(model_id=mi.id) for mi in gateway_mr.models]
         )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"모델 목록 조회 실패: {exc}") from exc
@@ -816,6 +904,7 @@ def get_runtime_settings():
         window_hours=p.window_hours,
         max_concurrent_channels=p.max_concurrent_channels,
         max_concurrent_analyses=p.max_concurrent_analyses,
+        analysis_interval_sec=p.analysis_interval_sec,
         telegram_enabled=n.telegram_enabled,
         wait_between_messages_sec=n.wait_between_messages_sec,
         low_confidence_threshold=n.low_confidence_threshold,
@@ -832,6 +921,7 @@ def update_runtime_settings(body: RuntimeSettingsUpdate, db=Depends(_settings_db
         "window_hours": ("polling", "window_hours", False),
         "max_concurrent_channels": ("polling", "max_concurrent_channels", False),
         "max_concurrent_analyses": ("polling", "max_concurrent_analyses", False),
+        "analysis_interval_sec": ("polling", "analysis_interval_sec", False),
     }
     notif_fields = {
         "telegram_enabled": ("notification", "telegram_enabled", False),

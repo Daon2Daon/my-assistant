@@ -4,8 +4,7 @@ YouTube 영상 분석 파이프라인.
 명세 docs/youtube_monitor_spec.md 4.3 기준:
   [1] AI Gateway 설정 로딩
   [2] 경로 A: Gemini native passthrough (primary_model, fileData)
-  [3a] 실패 시 youtube-transcript-api로 자막 추출
-  [3b] 경로 B: OpenAI 호환 chat completions (fallback_model)
+  [3] 경로 B: Gemini native passthrough (fallback_model, fileData) — 동일 방식, 다른 모델
   [4] 응답 검증 (필수 필드 7종)
   [5] PG 트랜잭션 저장 (video_details, video_summaries, tags, videos.status)
   [6] notify 콜백 호출 (YoutubeBot 연결 시 외부에서 주입)
@@ -13,9 +12,8 @@ YouTube 영상 분석 파이프라인.
 
 from __future__ import annotations
 
-import asyncio
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
@@ -71,11 +69,11 @@ FALLBACK_PROMPT_V1: str = """# 역할
 # 입력
 - 채널: {channel_name}
 - 업로드: {published_at_kst}
-- 영상 자막(일부):
-{transcript}
+- 영상 URL: {video_url}
 
 # 작업
-위 자막을 기반으로 영상을 분석해 JSON을 반환하세요.
+이 영상을 시청자가 직접 보지 않아도 핵심을 파악할 수 있도록 분석하세요.
+출력은 다음 JSON Schema를 준수하세요. 모든 텍스트는 한국어, '~함', '~임' 개조식으로 작성.
 
 # JSON Schema
 {{
@@ -83,14 +81,20 @@ FALLBACK_PROMPT_V1: str = """# 역할
   "headline": "string (이모지 1~2개 + 핵심 키워드, ≤40자)",
   "short_summary_md": "string (≤800자, Telegram HTML 허용)",
   "bullet_points": ["string 3~5개"],
-  "full_analysis_md": "string",
-  "key_points": [],
+  "full_analysis_md": "string (마크다운, 섹션: 한 줄 요약/주요 내용/결론 및 인사이트)",
+  "key_points": [{{"timestamp":"hh:mm:ss","point":"string"}}],
   "insights": ["string"],
-  "entities": [],
+  "entities": [{{"type":"person|company|ticker|metric","name":"string"}}],
   "sentiment": "bullish|bearish|neutral|mixed",
   "tags": [{{"name":"string","type":"topic|ticker|person|sector","weight":0.0}}],
   "confidence_score": 0.0
-}}"""
+}}
+
+# 제약
+- bullet_points는 각 항목 80자 이내.
+- tags는 5~10개, 한국어 정규화 (예: '미 연준' → '연준').
+- 영상 길이가 60분 초과면 핵심 챕터별로 key_points 분할.
+- 정치적·민감 주제는 사실 위주로 중립 표현."""
 
 REQUIRED_FIELDS = {
     "one_line",
@@ -146,38 +150,6 @@ def _validate(data: Dict[str, Any]) -> None:
         )
 
 
-# ---------- 자막 추출 (동기 → executor) ----------
-
-def _get_transcript_sync(video_id: str, languages: tuple[str, ...] = ("ko", "en")) -> str:
-    """youtube-transcript-api (동기) 호출."""
-    try:
-        from youtube_transcript_api import YouTubeTranscriptApi  # type: ignore
-
-        transcripts = YouTubeTranscriptApi.get_transcript(video_id, languages=list(languages))
-        return " ".join(t.get("text", "") for t in transcripts)[:20000]
-    except Exception as e:
-        raise RuntimeError(f"자막 추출 실패: {e}") from e
-
-
-async def _get_transcript_async(video_id: str) -> str:
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _get_transcript_sync, video_id)
-
-
-def _extract_video_id(video_url: str) -> str:
-    from urllib.parse import parse_qs, urlparse
-
-    parsed = urlparse(video_url)
-    qs = parse_qs(parsed.query)
-    if "v" in qs:
-        return qs["v"][0]
-    # youtu.be/VIDEO_ID
-    path = parsed.path.strip("/")
-    if path:
-        return path
-    raise ValueError(f"video_id 추출 실패: {video_url}")
-
-
 def _published_at_kst(published_at_str: str) -> str:
     try:
         dt = datetime.fromisoformat(published_at_str.replace("Z", "+00:00"))
@@ -209,20 +181,25 @@ class AnalysisPipeline:
         channel_name: str,
         published_at_str: str,
     ) -> AnalysisPipelineResult:
-        """LLM 호출 + 검증 (DB 저장 없음, save_to_db()로 분리)."""
+        """
+        LLM 호출 + 검증 (DB 저장 없음, save_to_db()로 분리).
+
+        경로 A: primary_model로 Gemini native (fileData.fileUri)
+        경로 B: fallback_model로 Gemini native (fileData.fileUri) — 동일 방식, 다른 모델
+        """
         pub_kst = _published_at_kst(published_at_str)
-        prompt = ANALYSIS_PROMPT_V1.format(
+
+        # --- 경로 A ---
+        prompt_a = ANALYSIS_PROMPT_V1.format(
             channel_name=channel_name,
             published_at_kst=pub_kst,
             video_url=video_url,
         )
-
-        # --- 경로 A ---
         try:
             result = await self._llm.analyze_video_native(
                 model=self._ai.primary_model,
                 video_url=video_url,
-                prompt=prompt,
+                prompt=prompt_a,
                 temperature=self._ai.temperature,
                 max_output_tokens=self._ai.max_tokens,
             )
@@ -237,34 +214,27 @@ class AnalysisPipeline:
         except (LiteLLMError, AnalysisValidationError) as e:
             print(f"⚠️  경로 A 실패 (video_pk={video_pk}): {e}")
 
-        # --- 경로 B fallback ---
-        try:
-            video_id = _extract_video_id(video_url)
-            transcript = await _get_transcript_async(video_id)
-        except Exception as e:
-            transcript = f"(자막 없음: {e})"
-
-        fallback_prompt = FALLBACK_PROMPT_V1.format(
+        # --- 경로 B: fallback_model로 동일한 Gemini native 방식 재시도 ---
+        prompt_b = FALLBACK_PROMPT_V1.format(
             channel_name=channel_name,
             published_at_kst=pub_kst,
-            transcript=transcript[:15000],
+            video_url=video_url,
         )
         try:
-            chat_result = await self._llm.chat(
+            fallback_result = await self._llm.analyze_video_native(
                 model=self._ai.fallback_model,
-                messages=[{"role": "user", "content": fallback_prompt}],
-                response_format={"type": "json_object"},
+                video_url=video_url,
+                prompt=prompt_b,
                 temperature=self._ai.temperature,
-                max_tokens=self._ai.max_tokens,
+                max_output_tokens=self._ai.max_tokens,
             )
-            data = json.loads(chat_result.content)
-            _validate(data)
+            _validate(fallback_result.data)
             return AnalysisPipelineResult(
-                data=data,
+                data=fallback_result.data,
                 route="B",
                 model_name=self._ai.fallback_model,
                 gateway_url=self._ai.base_url,
-                raw_text=chat_result.content,
+                raw_text=fallback_result.raw_text,
             )
         except Exception as e:
             raise AnalysisFailedError(

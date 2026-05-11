@@ -145,6 +145,11 @@ class MonitorService:
     async def _filter_new_videos(
         self, session: AsyncSession, video_ids: List[str]
     ) -> List[str]:
+        """DB에 이미 존재하는 video_id를 제외하고 신규 목록만 반환.
+
+        ON CONFLICT DO NOTHING INSERT 전에 사전 필터링하여 불필요한
+        API 호출(get_video_details)을 줄이는 역할도 합니다.
+        """
         if not video_ids:
             return []
         stmt = select(YoutubeVideo.video_id).where(YoutubeVideo.video_id.in_(video_ids))
@@ -267,7 +272,12 @@ async def _analyze_batch(
     sem: asyncio.Semaphore,
     polling_cfg: PollingSettings,
 ) -> None:
-    """신규 영상 분석 (동시성 세마포어 적용)."""
+    """신규 영상 분석.
+
+    analysis_interval_sec > 0 이면 영상 간 순차 처리하며 대기 시간 삽입.
+    Gemini 무료 티어처럼 분당 호출 제한이 있는 경우 throttling 역할을 합니다.
+    analysis_interval_sec == 0 이면 기존처럼 세마포어 기반 병렬 처리합니다.
+    """
     from app.services.youtube.analyzer import build_analysis_pipeline
     from app.services.youtube.db_engine import db_engine_manager
 
@@ -277,12 +287,12 @@ async def _analyze_batch(
     from app.services.bots.youtube_bot import notify_video_callback
 
     pipeline = build_analysis_pipeline(notify_callback=notify_video_callback)
+    interval_sec = int(polling_cfg.analysis_interval_sec or 0)
 
     async def _analyze_one(video_pk: int) -> None:
         async with sem:
             async with session_factory() as sess:
                 async with sess.begin():
-                    # video 메타 조회
                     stmt = select(YoutubeVideo).where(YoutubeVideo.video_pk == video_pk)
                     result = await sess.execute(stmt)
                     video = result.scalar_one_or_none()
@@ -306,7 +316,16 @@ async def _analyze_batch(
                     except Exception as e:
                         print(f"❌ 분석 실패 (video_pk={video_pk}): {e}")
 
-    await asyncio.gather(*[_analyze_one(pk) for pk in video_pks], return_exceptions=True)
+    if interval_sec > 0:
+        # 순차 처리: 영상 사이마다 대기하여 API 호출 제한 회피
+        for idx, pk in enumerate(video_pks):
+            if idx > 0:
+                print(f"⏳ 분석 간격 대기 {interval_sec}초 (video_pk={pk})")
+                await asyncio.sleep(interval_sec)
+            await _analyze_one(pk)
+    else:
+        # 병렬 처리: 세마포어로 동시 실행 수 제한
+        await asyncio.gather(*[_analyze_one(pk) for pk in video_pks], return_exceptions=True)
 
 
 def youtube_master_poll_sync() -> None:

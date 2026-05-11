@@ -5,7 +5,7 @@ YouTube 모듈 Pydantic 스키마 (채널 / 영상 / 태그 / 잡 / 통계).
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -113,7 +113,7 @@ class VideoDetailResponse(BaseModel):
     bullet_points: Optional[List[str]] = None
     key_points: Optional[List[Any]] = None
     insights: Optional[List[Any]] = None
-    entities: Optional[Dict[str, Any]] = None
+    entities: Optional[List[Any]] = None
     sentiment: Optional[str] = None
     confidence_score: Optional[float] = None
     model_name: Optional[str] = None

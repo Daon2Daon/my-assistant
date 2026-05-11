@@ -104,6 +104,9 @@ class RuntimeSettingsResponse(BaseModel):
     window_hours: int
     max_concurrent_channels: int
     max_concurrent_analyses: int
+    analysis_interval_sec: int = Field(
+        description="영상 간 AI 분석 대기 시간(초). 0이면 병렬 처리. Gemini 무료 티어 등 API 호출 제한 대응에 사용."
+    )
     # notification
     telegram_enabled: bool
     wait_between_messages_sec: int
@@ -119,6 +122,9 @@ class RuntimeSettingsUpdate(BaseModel):
     window_hours: Optional[int] = Field(None, ge=1)
     max_concurrent_channels: Optional[int] = Field(None, ge=1, le=20)
     max_concurrent_analyses: Optional[int] = Field(None, ge=1, le=20)
+    analysis_interval_sec: Optional[int] = Field(
+        None, ge=0, description="영상 간 AI 분석 대기 시간(초). 0이면 병렬 처리."
+    )
     # notification
     telegram_enabled: Optional[bool] = None
     wait_between_messages_sec: Optional[int] = Field(None, ge=0)

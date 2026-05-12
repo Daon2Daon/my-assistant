@@ -54,6 +54,7 @@ export interface Video {
   notified_at: string | null
   created_at: string
   summary: VideoSummary | null
+  source_channel_name: string | null
 }
 
 export interface VideoDetail extends Video {
@@ -75,6 +76,16 @@ export interface VideoDetail extends Video {
   model_name: string | null
   analyzed_at: string | null
   tags: string[]
+}
+
+export interface InstantAnalyzeResponse {
+  video_pk: number
+  video_id: string
+  title: string
+  source_channel_name: string
+  analysis_status: string
+  existing: boolean
+  message: string
 }
 
 export interface PaginatedVideos {
@@ -132,6 +143,12 @@ export interface PollTriggerResponse {
   message: string
 }
 
+export interface PromptSettings {
+  primary_prompt: string
+  fallback_prompt: string
+  prompt_version: string
+}
+
 // ── 채널 API ─────────────────────────────────────────────────────────────────
 
 export const channelApi = {
@@ -178,8 +195,11 @@ export const videoApi = {
 
   get: (pk: number) => request<VideoDetail>(`/videos/${pk}`),
 
-  reanalyze: (pk: number) =>
-    request<PollTriggerResponse>(`/videos/${pk}/reanalyze`, { method: 'POST' }),
+  reanalyze: (pk: number, customPrompt?: string) =>
+    request<PollTriggerResponse>(`/videos/${pk}/reanalyze`, {
+      method: 'POST',
+      body: JSON.stringify({ custom_prompt: customPrompt ?? null }),
+    }),
 }
 
 // ── 태그 API ─────────────────────────────────────────────────────────────────
@@ -213,6 +233,31 @@ export const jobApi = {
     if (params.page_size) q.set('page_size', String(params.page_size))
     return request<PaginatedJobLogs>(`/jobs/logs?${q}`)
   },
+}
+
+// ── 프롬프트 설정 API ─────────────────────────────────────────────────────────
+
+export const promptApi = {
+  get: () => request<PromptSettings>('/settings/prompts'),
+
+  update: (body: Partial<Pick<PromptSettings, 'primary_prompt' | 'fallback_prompt'>>) =>
+    request<PromptSettings>('/settings/prompts', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+
+  reset: () =>
+    request<PromptSettings>('/settings/prompts/reset', { method: 'DELETE' }),
+}
+
+// ── 즉시(추가 영상) 분석 API ──────────────────────────────────────────────────
+
+export const instantApi = {
+  analyze: (videoUrl: string, customPrompt?: string) =>
+    request<InstantAnalyzeResponse>('/instant-analyze', {
+      method: 'POST',
+      body: JSON.stringify({ video_url: videoUrl, custom_prompt: customPrompt ?? null }),
+    }),
 }
 
 // ── 헬스 API ─────────────────────────────────────────────────────────────────

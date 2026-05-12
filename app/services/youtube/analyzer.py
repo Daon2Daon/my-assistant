@@ -4,9 +4,9 @@ YouTube 영상 분석 파이프라인.
 명세 docs/youtube_monitor_spec.md 4.3 기준:
   [1] AI Gateway 설정 로딩
   [2] 경로 A: Gemini native passthrough (primary_model, fileData)
-  [3] 경로 B: Gemini native passthrough (fallback_model, fileData) — 동일 방식, 다른 모델
+  [3] 경로 B: fallback_model로 OpenAI 호환 엔드포인트 재시도
   [4] 응답 검증 (필수 필드 7종)
-  [5] PG 트랜잭션 저장 (video_details, video_summaries, tags, videos.status)
+  [5] PG 트랜잭션 저장 (video_analysis, tags, videos.status)
   [6] notify 콜백 호출 (YoutubeBot 연결 시 외부에서 주입)
 """
 
@@ -22,79 +22,87 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.youtube_video import YoutubeVideo
-from app.models.youtube_video_detail import YoutubeVideoDetail
-from app.models.youtube_video_summary import YoutubeVideoSummary
+from app.models.youtube_video_analysis import YoutubeVideoAnalysis
 from app.services.youtube.llm_client import LiteLLMClient, LiteLLMError
 from app.services.youtube.settings_manager import AIGatewaySettings, get_youtube_settings_manager
 from app.services.youtube.tag_extractor import extract_and_save_tags
 
-# ---------- 프롬프트 v1.0 ----------
+# ---------- 프롬프트 v2.0 ----------
 
-ANALYSIS_PROMPT_V1: str = """# 역할
-당신은 한국어 콘텐츠를 분석하는 미디어 분석가입니다.
+ANALYSIS_PROMPT_V1: str = """다음 url의 유튜브 영상의 내용을 직접 보지 않아도 이해할 수 있도록 한국어로 상세히 정리해줘.
 
-# 입력
-- 채널: {channel_name}
-- 업로드: {published_at_kst}
-- 영상 URL: {video_url}
+## 영상 정보
+- 채널명: {channel_name}
+- 업로드 일시: {published_at_kst}
 
-# 작업
-이 영상을 시청자가 직접 보지 않아도 핵심을 파악할 수 있도록 분석하세요.
-출력은 다음 JSON Schema를 준수하세요. 모든 텍스트는 한국어, '~함', '~임' 개조식으로 작성.
+## 분석 요청 항목
+- 한 줄 요약: 이 영상이 전달하려는 핵심 메시지를 한 문장으로 정리할 것.
+- 헤드라인: 이모지 1~2개와 핵심 키워드를 포함해 40자 이내로 작성할 것.
+- 짧은 요약: 텔레그램 알림용 요약문을 800자 이내로 작성할 것.
+- 주요 내용 (Bullet points): 전체 내용을 5~10개의 핵심 포인트로 나누어 자세히 설명할 것. 각 항목은 80자 이내.
+- 전체 분석: 마크다운 형식으로 '한 줄 요약 / 주요 내용 / 결론 및 인사이트' 섹션을 포함해 상세히 작성할 것.
+- 타임스탬프 포인트: 영상의 핵심 장면을 hh:mm:ss 형식의 타임스탬프와 함께 정리할 것. 60분 초과 영상은 챕터별로 분할.
+- 인사이트: 시청자가 얻을 수 있는 유익한 정보나 결론을 3~5개로 정리할 것.
+- 등장 인물/기업/지표: 영상에 등장하는 주요 인물, 기업, 티커, 수치를 추출할 것.
+- 감성: 영상의 전체 논조를 bullish/bearish/neutral/mixed 중 하나로 판단할 것.
+- 태그: 영상 내용을 대표하는 태그를 5~10개 추출할 것. 한국어로 정규화 (예: '미 연준' → '연준').
+- 신뢰도: 분석의 완성도를 0.0~1.0 사이의 숫자로 자기 평가할 것.
 
-# JSON Schema
+## 출력 형식
+반드시 아래 JSON 형식으로만 출력할 것. 모든 텍스트는 한국어, '~함', '~임' 형태의 개조식으로 작성.
+정치적·민감 주제는 사실 위주로 중립 표현.
+
 {{
-  "one_line": "string (≤100자)",
-  "headline": "string (이모지 1~2개 + 핵심 키워드, ≤40자)",
-  "short_summary_md": "string (≤800자, Telegram HTML 허용)",
-  "bullet_points": ["string 3~5개"],
-  "full_analysis_md": "string (마크다운, 섹션: 한 줄 요약/주요 내용/결론 및 인사이트)",
+  "one_line": "string",
+  "headline": "string",
+  "short_summary_md": "string",
+  "bullet_points": ["string"],
+  "full_analysis_md": "string",
   "key_points": [{{"timestamp":"hh:mm:ss","point":"string"}}],
   "insights": ["string"],
   "entities": [{{"type":"person|company|ticker|metric","name":"string"}}],
   "sentiment": "bullish|bearish|neutral|mixed",
   "tags": [{{"name":"string","type":"topic|ticker|person|sector","weight":0.0}}],
   "confidence_score": 0.0
-}}
+}}"""
 
-# 제약
-- bullet_points는 각 항목 80자 이내.
-- tags는 5~10개, 한국어 정규화 (예: '미 연준' → '연준').
-- 영상 길이가 60분 초과면 핵심 챕터별로 key_points 분할.
-- 정치적·민감 주제는 사실 위주로 중립 표현."""
+FALLBACK_PROMPT_V1: str = """다음 유튜브 영상의 내용을 직접 보지 않아도 이해할 수 있도록 한국어로 상세히 정리해줘.
 
-FALLBACK_PROMPT_V1: str = """# 역할
-당신은 한국어 콘텐츠를 분석하는 미디어 분석가입니다.
-
-# 입력
-- 채널: {channel_name}
-- 업로드: {published_at_kst}
+## 영상 정보
+- 채널명: {channel_name}
+- 업로드 일시: {published_at_kst}
 - 영상 URL: {video_url}
 
-# 작업
-이 영상을 시청자가 직접 보지 않아도 핵심을 파악할 수 있도록 분석하세요.
-출력은 다음 JSON Schema를 준수하세요. 모든 텍스트는 한국어, '~함', '~임' 개조식으로 작성.
+## 분석 요청 항목
+- 한 줄 요약: 이 영상이 전달하려는 핵심 메시지를 한 문장으로 정리할 것.
+- 헤드라인: 이모지 1~2개와 핵심 키워드를 포함해 40자 이내로 작성할 것.
+- 짧은 요약: 텔레그램 알림용 요약문을 800자 이내로 작성할 것.
+- 주요 내용 (Bullet points): 전체 내용을 5~10개의 핵심 포인트로 나누어 자세히 설명할 것. 각 항목은 80자 이내.
+- 전체 분석: 마크다운 형식으로 '한 줄 요약 / 주요 내용 / 결론 및 인사이트' 섹션을 포함해 상세히 작성할 것.
+- 타임스탬프 포인트: 영상의 핵심 장면을 hh:mm:ss 형식의 타임스탬프와 함께 정리할 것. 60분 초과 영상은 챕터별로 분할.
+- 인사이트: 시청자가 얻을 수 있는 유익한 정보나 결론을 3~5개로 정리할 것.
+- 등장 인물/기업/지표: 영상에 등장하는 주요 인물, 기업, 티커, 수치를 추출할 것.
+- 감성: 영상의 전체 논조를 bullish/bearish/neutral/mixed 중 하나로 판단할 것.
+- 태그: 영상 내용을 대표하는 태그를 5~10개 추출할 것. 한국어로 정규화 (예: '미 연준' → '연준').
+- 신뢰도: 분석의 완성도를 0.0~1.0 사이의 숫자로 자기 평가할 것.
 
-# JSON Schema
+## 출력 형식
+반드시 아래 JSON 형식으로만 출력할 것. 모든 텍스트는 한국어, '~함', '~임' 형태의 개조식으로 작성.
+정치적·민감 주제는 사실 위주로 중립 표현.
+
 {{
-  "one_line": "string (≤100자)",
-  "headline": "string (이모지 1~2개 + 핵심 키워드, ≤40자)",
-  "short_summary_md": "string (≤800자, Telegram HTML 허용)",
-  "bullet_points": ["string 3~5개"],
-  "full_analysis_md": "string (마크다운, 섹션: 한 줄 요약/주요 내용/결론 및 인사이트)",
+  "one_line": "string",
+  "headline": "string",
+  "short_summary_md": "string",
+  "bullet_points": ["string"],
+  "full_analysis_md": "string",
   "key_points": [{{"timestamp":"hh:mm:ss","point":"string"}}],
   "insights": ["string"],
   "entities": [{{"type":"person|company|ticker|metric","name":"string"}}],
   "sentiment": "bullish|bearish|neutral|mixed",
   "tags": [{{"name":"string","type":"topic|ticker|person|sector","weight":0.0}}],
   "confidence_score": 0.0
-}}
-
-# 제약
-- bullet_points는 각 항목 80자 이내.
-- tags는 5~10개, 한국어 정규화 (예: '미 연준' → '연준').
-- 영상 길이가 60분 초과면 핵심 챕터별로 key_points 분할.
-- 정치적·민감 주제는 사실 위주로 중립 표현."""
+}}"""
 
 REQUIRED_FIELDS = {
     "one_line",
@@ -106,7 +114,7 @@ REQUIRED_FIELDS = {
     "confidence_score",
 }
 
-PROMPT_VERSION = "v1.0"
+PROMPT_VERSION = "v2.0"
 
 
 # ---------- 데이터 클래스 ----------
@@ -180,26 +188,44 @@ class AnalysisPipeline:
         video_url: str,
         channel_name: str,
         published_at_str: str,
+        custom_prompt: Optional[str] = None,
     ) -> AnalysisPipelineResult:
         """
         LLM 호출 + 검증 (DB 저장 없음, save_to_db()로 분리).
 
         경로 A: primary_model로 Gemini native (fileData.fileUri)
-        경로 B: fallback_model로 Gemini native (fileData.fileUri) — 동일 방식, 다른 모델
+        경로 B: fallback_model로 OpenAI 호환 엔드포인트 폴백
+        custom_prompt가 주어지면 경로 A·B 모두 해당 프롬프트 사용.
         """
+        from app.services.youtube.settings_manager import get_youtube_settings_manager
         pub_kst = _published_at_kst(published_at_str)
 
+        # DB 저장 프롬프트 로딩 (없으면 코드 기본값 사용)
+        mgr = get_youtube_settings_manager()
+        prompt_cfg = mgr.get_prompts()
+
+        def _render(template: str) -> str:
+            return template.format(
+                channel_name=channel_name,
+                published_at_kst=pub_kst,
+                video_url=video_url,
+            )
+
+        if custom_prompt:
+            base_prompt_a = _render(custom_prompt)
+            base_prompt_b = _render(custom_prompt)
+        else:
+            template_a = prompt_cfg.primary_prompt or ANALYSIS_PROMPT_V1
+            template_b = prompt_cfg.fallback_prompt or FALLBACK_PROMPT_V1
+            base_prompt_a = _render(template_a)
+            base_prompt_b = _render(template_b)
+
         # --- 경로 A ---
-        prompt_a = ANALYSIS_PROMPT_V1.format(
-            channel_name=channel_name,
-            published_at_kst=pub_kst,
-            video_url=video_url,
-        )
         try:
             result = await self._llm.analyze_video_native(
                 model=self._ai.primary_model,
                 video_url=video_url,
-                prompt=prompt_a,
+                prompt=base_prompt_a,
                 temperature=self._ai.temperature,
                 max_output_tokens=self._ai.max_tokens,
             )
@@ -214,27 +240,32 @@ class AnalysisPipeline:
         except (LiteLLMError, AnalysisValidationError) as e:
             print(f"⚠️  경로 A 실패 (video_pk={video_pk}): {e}")
 
-        # --- 경로 B: fallback_model로 동일한 Gemini native 방식 재시도 ---
-        prompt_b = FALLBACK_PROMPT_V1.format(
-            channel_name=channel_name,
-            published_at_kst=pub_kst,
-            video_url=video_url,
-        )
+        # --- 경로 B: fallback_model로 OpenAI 호환 엔드포인트 재시도 ---
         try:
-            fallback_result = await self._llm.analyze_video_native(
+            chat_result = await self._llm.chat(
                 model=self._ai.fallback_model,
-                video_url=video_url,
-                prompt=prompt_b,
+                messages=[{"role": "user", "content": base_prompt_b}],
                 temperature=self._ai.temperature,
-                max_output_tokens=self._ai.max_tokens,
+                max_tokens=self._ai.max_tokens,
             )
-            _validate(fallback_result.data)
+            raw_text = chat_result.content.strip()
+            # JSON 블록이 마크다운 코드펜스로 감싸진 경우 제거
+            if raw_text.startswith("```"):
+                lines = raw_text.splitlines()
+                raw_text = "\n".join(
+                    line for line in lines if not line.startswith("```")
+                )
+            try:
+                data = json.loads(raw_text)
+            except Exception as parse_err:
+                raise LiteLLMError(f"경로 B 응답 JSON 파싱 실패: {parse_err}") from parse_err
+            _validate(data)
             return AnalysisPipelineResult(
-                data=fallback_result.data,
+                data=data,
                 route="B",
                 model_name=self._ai.fallback_model,
                 gateway_url=self._ai.base_url,
-                raw_text=fallback_result.raw_text,
+                raw_text=raw_text,
             )
         except Exception as e:
             raise AnalysisFailedError(
@@ -247,14 +278,18 @@ class AnalysisPipeline:
         video_pk: int,
         result: AnalysisPipelineResult,
     ) -> None:
-        """PG 트랜잭션: video_details / video_summaries / tags / video_tags / videos.status."""
+        """PG 트랜잭션: video_analysis / tags / video_tags / videos.status."""
         data = result.data
 
-        # video_details upsert
-        detail_stmt = pg_insert(YoutubeVideoDetail).values(
+        # video_analysis upsert (통합 테이블)
+        analysis_stmt = pg_insert(YoutubeVideoAnalysis).values(
             video_pk=video_pk,
+            one_line=data.get("one_line", ""),
+            headline=data.get("headline"),
+            short_summary_md=data.get("short_summary_md", ""),
+            bullet_points=data.get("bullet_points"),
+            full_analysis_md=data.get("full_analysis_md"),
             full_transcript=None,
-            full_analysis_md=data.get("full_analysis_md", ""),
             key_points=data.get("key_points"),
             insights=data.get("insights"),
             entities=data.get("entities"),
@@ -268,42 +303,29 @@ class AnalysisPipeline:
             cost_usd=result.cost_usd,
             analyzed_at=datetime.now(timezone.utc),
         )
-        detail_upsert = detail_stmt.on_conflict_do_update(
+        analysis_upsert = analysis_stmt.on_conflict_do_update(
             index_elements=["video_pk"],
             set_={
-                "full_analysis_md": detail_stmt.excluded.full_analysis_md,
-                "key_points": detail_stmt.excluded.key_points,
-                "insights": detail_stmt.excluded.insights,
-                "entities": detail_stmt.excluded.entities,
-                "sentiment": detail_stmt.excluded.sentiment,
-                "confidence_score": detail_stmt.excluded.confidence_score,
-                "model_name": detail_stmt.excluded.model_name,
-                "gateway_url": detail_stmt.excluded.gateway_url,
-                "prompt_version": detail_stmt.excluded.prompt_version,
-                "analyzed_at": detail_stmt.excluded.analyzed_at,
+                "one_line": analysis_stmt.excluded.one_line,
+                "headline": analysis_stmt.excluded.headline,
+                "short_summary_md": analysis_stmt.excluded.short_summary_md,
+                "bullet_points": analysis_stmt.excluded.bullet_points,
+                "full_analysis_md": analysis_stmt.excluded.full_analysis_md,
+                "key_points": analysis_stmt.excluded.key_points,
+                "insights": analysis_stmt.excluded.insights,
+                "entities": analysis_stmt.excluded.entities,
+                "sentiment": analysis_stmt.excluded.sentiment,
+                "confidence_score": analysis_stmt.excluded.confidence_score,
+                "model_name": analysis_stmt.excluded.model_name,
+                "gateway_url": analysis_stmt.excluded.gateway_url,
+                "prompt_version": analysis_stmt.excluded.prompt_version,
+                "token_input": analysis_stmt.excluded.token_input,
+                "token_output": analysis_stmt.excluded.token_output,
+                "cost_usd": analysis_stmt.excluded.cost_usd,
+                "analyzed_at": analysis_stmt.excluded.analyzed_at,
             },
         )
-        await session.execute(detail_upsert)
-
-        # video_summaries upsert
-        summary_stmt = pg_insert(YoutubeVideoSummary).values(
-            video_pk=video_pk,
-            one_line=data.get("one_line", ""),
-            short_summary_md=data.get("short_summary_md", ""),
-            headline=data.get("headline"),
-            bullet_points=data.get("bullet_points"),
-            cta_text=None,
-        )
-        summary_upsert = summary_stmt.on_conflict_do_update(
-            index_elements=["video_pk"],
-            set_={
-                "one_line": summary_stmt.excluded.one_line,
-                "short_summary_md": summary_stmt.excluded.short_summary_md,
-                "headline": summary_stmt.excluded.headline,
-                "bullet_points": summary_stmt.excluded.bullet_points,
-            },
-        )
-        await session.execute(summary_upsert)
+        await session.execute(analysis_upsert)
 
         # tags
         raw_tags: List[Dict[str, Any]] = data.get("tags") or []
@@ -332,6 +354,7 @@ class AnalysisPipeline:
         video_url: str,
         channel_name: str,
         published_at_str: str,
+        custom_prompt: Optional[str] = None,
     ) -> AnalysisPipelineResult:
         """분석 실행 + DB 저장을 하나의 흐름으로 처리. 실패 시 videos.status를 failed로 갱신."""
         # 처리 중 상태로 변경
@@ -348,6 +371,7 @@ class AnalysisPipeline:
                 video_url=video_url,
                 channel_name=channel_name,
                 published_at_str=published_at_str,
+                custom_prompt=custom_prompt,
             )
             await self.save_to_db(session=session, video_pk=video_pk, result=result)
             return result

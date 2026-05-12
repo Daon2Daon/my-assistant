@@ -6,11 +6,13 @@ const NAV_ITEMS = [
   { to: '/youtube/', label: '대시보드', icon: '🏠', end: true },
   { to: '/youtube/channels', label: '채널 관리', icon: '📺' },
   { to: '/youtube/videos', label: '영상 목록', icon: '🎬' },
+  { to: '/youtube/instant-analyze', label: '추가 영상 분석', icon: '🔍' },
   { to: '/youtube/tags', label: '태그 클라우드', icon: '🏷' },
   { to: '/youtube/jobs', label: '잡 로그', icon: '📋' },
   { to: '/youtube/settings/database', label: 'DB 설정', icon: '🗄' },
   { to: '/youtube/settings/ai-gateway', label: 'AI Gateway', icon: '🤖' },
-  { to: '/youtube/settings/runtime', label: '폴링 설정', icon: '⚙️' },
+  { to: '/youtube/settings/runtime', label: '모니터링 설정', icon: '⚙️' },
+  { to: '/youtube/settings/prompts', label: '프롬프트 설정', icon: '📝' },
 ]
 
 type HealthState = 'unknown' | 'ok' | 'error'

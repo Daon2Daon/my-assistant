@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import dayjs from 'dayjs'
-import { videoApi } from '../api/client'
+import { videoApi, promptApi } from '../api/client'
 import type { VideoDetail as VideoDetailType } from '../api/client'
 import Spinner from '../components/Spinner'
 import ErrorBanner from '../components/ErrorBanner'
@@ -28,6 +28,24 @@ export default function VideoDetail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [reanalyzing, setReanalyzing] = useState(false)
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 커스텀 프롬프트 패널
+  const [promptOpen, setPromptOpen] = useState(false)
+  const [customPrompt, setCustomPrompt] = useState('')
+  const [promptLoaded, setPromptLoaded] = useState(false)
+
+  const stopPolling = () => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current)
+      pollingRef.current = null
+    }
+    if (pollingTimeoutRef.current) {
+      clearTimeout(pollingTimeoutRef.current)
+      pollingTimeoutRef.current = null
+    }
+  }
 
   const load = async () => {
     if (!videoPk) return
@@ -42,19 +60,55 @@ export default function VideoDetail() {
     }
   }
 
+  const silentRefresh = async () => {
+    if (!videoPk) return
+    try {
+      const updated = await videoApi.get(Number(videoPk))
+      setVideo(updated)
+      if (updated.analysis_status !== 'processing' && updated.analysis_status !== 'pending') {
+        stopPolling()
+        setReanalyzing(false)
+      }
+    } catch {
+      stopPolling()
+      setReanalyzing(false)
+    }
+  }
+
   useEffect(() => { load() }, [videoPk])
+
+  useEffect(() => stopPolling, [])
+
+  const handleOpenPrompt = async () => {
+    if (!promptLoaded) {
+      try {
+        const res = await promptApi.get()
+        setCustomPrompt(res.primary_prompt)
+        setPromptLoaded(true)
+      } catch {
+        // 실패해도 빈 텍스트로 열기
+        setPromptLoaded(true)
+      }
+    }
+    setPromptOpen((prev) => !prev)
+  }
 
   const handleReanalyze = async () => {
     if (!videoPk) return
     setReanalyzing(true)
     try {
-      const r = await videoApi.reanalyze(Number(videoPk))
-      alert(r.message)
-      await load()
+      const prompt = promptOpen && customPrompt.trim() ? customPrompt.trim() : undefined
+      await videoApi.reanalyze(Number(videoPk), prompt)
+      await silentRefresh()
+      pollingRef.current = setInterval(silentRefresh, 2000)
+      // 3분 후 주기적 새로고침 자동 중단 (분석이 비정상적으로 오래 걸리는 경우 대비)
+      pollingTimeoutRef.current = setTimeout(() => {
+        stopPolling()
+        setReanalyzing(false)
+      }, 3 * 60 * 1000)
     } catch (e) {
-      alert((e as Error).message)
-    } finally {
       setReanalyzing(false)
+      alert((e as Error).message)
     }
   }
 
@@ -92,17 +146,71 @@ export default function VideoDetail() {
                     YouTube에서 보기
                   </a>
                   <button
+                    onClick={handleOpenPrompt}
+                    disabled={reanalyzing}
+                    className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors disabled:opacity-60 ${
+                      promptOpen
+                        ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                    title="이 영상 전용 프롬프트를 수정하여 재분석"
+                  >
+                    {promptOpen ? '프롬프트 닫기' : '프롬프트 수정'}
+                  </button>
+                  <button
                     onClick={handleReanalyze}
                     disabled={reanalyzing}
                     className="px-3 py-1.5 bg-blue-50 text-blue-600 text-xs rounded-lg hover:bg-blue-100 disabled:opacity-60 font-medium"
                   >
-                    {reanalyzing ? '요청 중...' : '재분석'}
+                    {reanalyzing ? '분석 중...' : promptOpen ? '이 프롬프트로 재분석' : '재분석'}
                   </button>
                 </div>
               </div>
 
+              {/* 커스텀 프롬프트 패널 */}
+              {promptOpen && (
+                <div className="mt-3 border border-amber-200 rounded-lg bg-amber-50 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-amber-700">
+                      이 영상 전용 분석 프롬프트
+                      <span className="font-normal text-amber-600 ml-1">(기본 프롬프트 기반으로 편집됨)</span>
+                    </p>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const res = await promptApi.get()
+                          setCustomPrompt(res.primary_prompt)
+                        } catch { /* no-op */ }
+                      }}
+                      className="text-xs text-amber-600 hover:text-amber-800 underline"
+                    >
+                      기본값으로 되돌리기
+                    </button>
+                  </div>
+                  <textarea
+                    value={customPrompt}
+                    onChange={(e) => setCustomPrompt(e.target.value)}
+                    rows={10}
+                    className="w-full border border-amber-300 rounded-lg px-3 py-2 text-xs font-mono bg-white focus:outline-none focus:ring-2 focus:ring-amber-400 resize-y"
+                    placeholder="분석 프롬프트를 입력하세요..."
+                    spellCheck={false}
+                  />
+                  <p className="text-xs text-amber-600">
+                    변수: <code className="bg-amber-100 px-1 rounded">{'{channel_name}'}</code>{' '}
+                    <code className="bg-amber-100 px-1 rounded">{'{published_at_kst}'}</code>{' '}
+                    <code className="bg-amber-100 px-1 rounded">{'{video_url}'}</code>
+                  </p>
+                </div>
+              )}
+
               <div className="flex items-center gap-3 flex-wrap text-xs text-gray-500">
                 <StatusBadge status={video.analysis_status} />
+                {video.source_channel_name && (
+                  <span className="text-purple-600 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full">
+                    추가 · {video.source_channel_name}
+                  </span>
+                )}
                 <span>📅 {dayjs(video.published_at).format('YYYY-MM-DD HH:mm')}</span>
                 {video.view_count != null && <span>👁 {video.view_count.toLocaleString()}</span>}
                 {video.like_count != null && <span>👍 {video.like_count.toLocaleString()}</span>}
@@ -127,6 +235,19 @@ export default function VideoDetail() {
               )}
             </div>
           </div>
+
+          {/* YouTube 원본 설명문 */}
+          {video.description && (
+            <details className="bg-white rounded-xl shadow-sm p-5 group">
+              <summary className="font-semibold text-gray-800 cursor-pointer select-none list-none flex items-center justify-between">
+                <span>YouTube 설명문</span>
+                <span className="text-gray-400 text-sm group-open:rotate-180 transition-transform">▼</span>
+              </summary>
+              <pre className="mt-3 text-xs text-gray-600 whitespace-pre-wrap break-words font-sans leading-relaxed max-h-60 overflow-y-auto">
+                {video.description}
+              </pre>
+            </details>
+          )}
 
           {/* 분석 결과 */}
           {video.full_analysis_md ? (

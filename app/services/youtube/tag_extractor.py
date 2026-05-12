@@ -112,6 +112,22 @@ async def _upsert_video_tags(
             {"video_pk": video_pk, "tag_pk": tag_pk, "weight": weight},
         )
 
+    # video_count 재계산: 이 영상의 태그들만 갱신
+    updated_tag_pks = [pk for pk in name_to_pk.values() if pk]
+    if updated_tag_pks:
+        await session.execute(
+            text(
+                """
+                UPDATE youtube.tags t
+                SET video_count = (
+                    SELECT COUNT(*) FROM youtube.video_tags vt WHERE vt.tag_pk = t.tag_pk
+                )
+                WHERE t.tag_pk = ANY(:tag_pks)
+                """
+            ),
+            {"tag_pks": updated_tag_pks},
+        )
+
 
 async def _merge_synonyms_with_llm(
     tags: List[Dict[str, Any]],

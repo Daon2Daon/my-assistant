@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Column, DateTime, String
+from sqlalchemy import BigInteger, Column, DateTime, Integer, String
 from sqlalchemy.sql import func
 
 from app.models.youtube_pg_base import YoutubePGBase
@@ -11,5 +11,6 @@ class YoutubeTag(YoutubePGBase):
     tag_pk = Column(BigInteger, primary_key=True, autoincrement=True)
     name = Column(String, nullable=False, unique=True)
     tag_type = Column(String, nullable=False, default="topic")
+    video_count = Column(Integer, nullable=False, default=0, server_default="0")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

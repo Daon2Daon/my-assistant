@@ -14,8 +14,8 @@ const PAGE_INFO: Record<string, { title: string; description: string }> = {
     description: 'litellm Gateway 주소, API 키, 사용 모델을 설정합니다.',
   },
   runtime: {
-    title: '폴링 / 알림 설정',
-    description: '폴링 주기, YouTube API 할당량, Telegram 알림 옵션을 설정합니다.',
+    title: '모니터링 / 알림 설정',
+    description: '모니터링 주기, YouTube API 할당량, Telegram 알림 옵션을 설정합니다.',
   },
 }
 

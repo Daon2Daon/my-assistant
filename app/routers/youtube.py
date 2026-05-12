@@ -2,7 +2,7 @@
 YouTube 모니터 REST API 라우터.
 
 엔드포인트 구조:
-  /api/youtube/channels         채널 CRUD + 즉시 폴링
+  /api/youtube/channels         채널 CRUD + 즉시 모니터링
   /api/youtube/videos           영상 목록/상세/재분석
   /api/youtube/tags             태그 클라우드
   /api/youtube/jobs/logs        잡 로그
@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -26,6 +27,8 @@ from app.schemas.youtube import (
     ChannelCreate,
     ChannelUpdate,
     ChannelResponse,
+    InstantAnalyzeRequest,
+    InstantAnalyzeResponse,
     JobLogResponse,
     PaginatedJobLogs,
     PaginatedVideos,
@@ -46,6 +49,8 @@ from app.schemas.youtube_settings import (
     GatewayTestAnalyzeResponse,
     ModelInfo,
     ModelsResponse,
+    PromptSettingsResponse,
+    PromptSettingsUpdate,
     RuntimeSettingsResponse,
     RuntimeSettingsUpdate,
     SchemaApplyResponse,
@@ -54,13 +59,81 @@ from app.models.youtube_channel import YoutubeChannel
 from app.models.youtube_job_log import YoutubeJobLog
 from app.models.youtube_tag import YoutubeTag
 from app.models.youtube_video import YoutubeVideo
-from app.models.youtube_video_detail import YoutubeVideoDetail
-from app.models.youtube_video_summary import YoutubeVideoSummary
+from app.models.youtube_video_analysis import YoutubeVideoAnalysis
 from app.models.youtube_video_tag import YoutubeVideoTag
 from app.services.youtube.settings_manager import get_youtube_settings_manager, mask_secret
 from app.models.youtube_setting import YoutubeSetting
 
 router = APIRouter(prefix="/api/youtube", tags=["YouTube"])
+
+# ── 가상 채널 (즉시/추가 영상 분석 전용) ─────────────────────────────────────────
+INSTANT_CHANNEL_ID = "__instant__"
+INSTANT_CHANNEL_NAME = "추가 영상"
+
+
+def _extract_video_id(url: str) -> str | None:
+    """YouTube URL에서 video_id 추출. 지원 형식: watch?v=, youtu.be/, /shorts/"""
+    from urllib.parse import urlparse, parse_qs
+
+    url = url.strip()
+    try:
+        p = urlparse(url)
+        host = p.netloc.lower().lstrip("www.")
+        if host in ("youtube.com",):
+            if p.path == "/watch":
+                return parse_qs(p.query).get("v", [None])[0]
+            if p.path.startswith("/shorts/"):
+                return p.path.split("/shorts/")[1].split("?")[0] or None
+            if p.path.startswith("/embed/"):
+                return p.path.split("/embed/")[1].split("?")[0] or None
+        if host == "youtu.be":
+            return p.path.lstrip("/").split("?")[0] or None
+    except Exception:
+        pass
+    return None
+
+
+def _parse_iso_duration(iso: str | None) -> int | None:
+    """ISO 8601 duration → 초."""
+    if not iso:
+        return None
+    try:
+        import isodate
+        return int(isodate.parse_duration(iso).total_seconds())
+    except Exception:
+        return None
+
+
+async def ensure_instant_channel(session: AsyncSession) -> YoutubeChannel:
+    """가상 채널 레코드가 없으면 생성, 있으면 반환."""
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    stmt = select(YoutubeChannel).where(YoutubeChannel.channel_id == INSTANT_CHANNEL_ID)
+    result = await session.execute(stmt)
+    channel = result.scalar_one_or_none()
+    if channel:
+        return channel
+
+    upsert = (
+        pg_insert(YoutubeChannel)
+        .values(
+            channel_id=INSTANT_CHANNEL_ID,
+            channel_name=INSTANT_CHANNEL_NAME,
+            upload_playlist_id=INSTANT_CHANNEL_ID,
+            is_active=False,
+            notify_enabled=False,
+            poll_interval_min=99999,
+        )
+        .on_conflict_do_nothing(index_elements=["channel_id"])
+        .returning(YoutubeChannel)
+    )
+    row = (await session.execute(upsert)).fetchone()
+    await session.flush()
+    if row:
+        return row[0]
+    # 동시 요청으로 이미 삽입된 경우 재조회
+    result = await session.execute(stmt)
+    return result.scalar_one()
 
 
 # ── PG AsyncSession 의존성 ────────────────────────────────────────────────────
@@ -142,8 +215,12 @@ async def list_channels(
     is_active: Optional[bool] = None,
     session: AsyncSession = Depends(get_pg_session),
 ):
-    """전체 채널 목록 조회."""
-    stmt = select(YoutubeChannel).order_by(YoutubeChannel.channel_name)
+    """전체 채널 목록 조회 (가상 채널 제외)."""
+    stmt = (
+        select(YoutubeChannel)
+        .where(YoutubeChannel.channel_id != INSTANT_CHANNEL_ID)
+        .order_by(YoutubeChannel.channel_name)
+    )
     if is_active is not None:
         stmt = stmt.where(YoutubeChannel.is_active == is_active)
     result = await session.execute(stmt)
@@ -155,7 +232,7 @@ async def add_channel(
     body: ChannelCreate,
     session: AsyncSession = Depends(get_pg_session),
 ):
-    """채널 추가 (resolve_channel → DB 저장 → 선택적 즉시 폴링)."""
+    """채널 추가 (resolve_channel → DB 저장 → 선택적 즉시 모니터링)."""
     from app.services.youtube.youtube_api import YouTubeAPIClient, YouTubeAPIError
 
     mgr = get_youtube_settings_manager()
@@ -209,7 +286,7 @@ async def update_channel(
     body: ChannelUpdate,
     session: AsyncSession = Depends(get_pg_session),
 ):
-    """채널 부분 수정 (활성 여부, 폴링 주기, 카테고리 등)."""
+    """채널 부분 수정 (활성 여부, 모니터링 주기, 카테고리 등)."""
     channel = await session.get(YoutubeChannel, channel_pk)
     if not channel:
         raise HTTPException(status_code=404, detail="채널을 찾을 수 없습니다.")
@@ -247,7 +324,7 @@ async def trigger_channel_poll(
     channel_pk: int,
     session: AsyncSession = Depends(get_pg_session),
 ):
-    """채널 즉시 폴링 트리거 (비동기 백그라운드)."""
+    """채널 즉시 모니터링 트리거 (비동기 백그라운드)."""
     channel = await session.get(YoutubeChannel, channel_pk)
     if not channel:
         raise HTTPException(status_code=404, detail="채널을 찾을 수 없습니다.")
@@ -256,12 +333,12 @@ async def trigger_channel_poll(
     asyncio.create_task(_trigger_channel_poll(channel_pk))
     return PollTriggerResponse(
         job_id=job_id,
-        message=f"채널 '{channel.channel_name}' 폴링 요청이 접수되었습니다.",
+        message=f"채널 '{channel.channel_name}' 모니터링 요청이 접수되었습니다.",
     )
 
 
 async def _trigger_channel_poll(channel_pk: int) -> None:
-    """백그라운드에서 단일 채널 폴링 실행 (첫 폴링 시 24시간 window 적용)."""
+    """백그라운드에서 단일 채널 모니터링 실행 (첫 실행 시 24시간 window 적용)."""
     from app.services.youtube.db_engine import db_engine_manager, DBNotConfiguredError
     from app.services.youtube.monitor_service import MonitorService, _analyze_batch
     from app.services.youtube.settings_manager import get_youtube_settings_manager
@@ -294,9 +371,9 @@ async def _trigger_channel_poll(channel_pk: int) -> None:
             await _analyze_batch(new_pks, analysis_sem, polling_cfg)
 
     except DBNotConfiguredError:
-        print(f"⚠️  즉시 폴링 SKIP — PostgreSQL 미설정 (channel_pk={channel_pk})")
+        print(f"⚠️  즉시 모니터링 SKIP — PostgreSQL 미설정 (channel_pk={channel_pk})")
     except Exception as exc:
-        print(f"⚠️  즉시 폴링 실패 (channel_pk={channel_pk}): {exc}")
+        print(f"⚠️  즉시 모니터링 실패 (channel_pk={channel_pk}): {exc}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -337,18 +414,18 @@ async def list_videos(
     stmt = stmt.offset((page - 1) * page_size).limit(page_size)
     rows = (await session.execute(stmt)).scalars().all()
 
-    # summary 인라인 조인
+    # analysis 인라인 조인 (one_line + headline)
     video_pks = [v.video_pk for v in rows]
-    summaries: dict[int, YoutubeVideoSummary] = {}
+    analyses: dict[int, YoutubeVideoAnalysis] = {}
     if video_pks:
-        s_result = await session.execute(
-            select(YoutubeVideoSummary).where(YoutubeVideoSummary.video_pk.in_(video_pks))
+        a_result = await session.execute(
+            select(YoutubeVideoAnalysis).where(YoutubeVideoAnalysis.video_pk.in_(video_pks))
         )
-        summaries = {s.video_pk: s for s in s_result.scalars().all()}
+        analyses = {a.video_pk: a for a in a_result.scalars().all()}
 
     items = []
     for v in rows:
-        s = summaries.get(v.video_pk)
+        a = analyses.get(v.video_pk)
         items.append(
             VideoResponse(
                 video_pk=v.video_pk,
@@ -365,8 +442,8 @@ async def list_videos(
                 notified_at=v.notified_at,
                 created_at=v.created_at,
                 summary=VideoSummaryEmbed(
-                    one_line=s.one_line, headline=s.headline
-                ) if s else None,
+                    one_line=a.one_line, headline=a.headline
+                ) if a else None,
             )
         )
 
@@ -378,20 +455,15 @@ async def get_video_detail(
     video_pk: int,
     session: AsyncSession = Depends(get_pg_session),
 ):
-    """영상 상세 (detail + summary + tags 포함)."""
+    """영상 상세 (analysis + tags 포함)."""
     video = await session.get(YoutubeVideo, video_pk)
     if not video:
         raise HTTPException(status_code=404, detail="영상을 찾을 수 없습니다.")
 
-    detail_r = await session.execute(
-        select(YoutubeVideoDetail).where(YoutubeVideoDetail.video_pk == video_pk)
+    analysis_r = await session.execute(
+        select(YoutubeVideoAnalysis).where(YoutubeVideoAnalysis.video_pk == video_pk)
     )
-    detail = detail_r.scalar_one_or_none()
-
-    summary_r = await session.execute(
-        select(YoutubeVideoSummary).where(YoutubeVideoSummary.video_pk == video_pk)
-    )
-    summary = summary_r.scalar_one_or_none()
+    analysis = analysis_r.scalar_one_or_none()
 
     tag_r = await session.execute(
         select(YoutubeTag.name)
@@ -420,32 +492,39 @@ async def get_video_detail(
         notified_at=video.notified_at,
         created_at=video.created_at,
         updated_at=video.updated_at,
-        one_line=summary.one_line if summary else None,
-        headline=summary.headline if summary else None,
-        short_summary_md=summary.short_summary_md if summary else None,
-        full_analysis_md=detail.full_analysis_md if detail else None,
-        bullet_points=summary.bullet_points if summary else None,
-        key_points=detail.key_points if detail else None,
-        insights=detail.insights if detail else None,
-        entities=detail.entities if detail else None,
-        sentiment=detail.sentiment if detail else None,
-        confidence_score=detail.confidence_score if detail else None,
-        model_name=detail.model_name if detail else None,
-        analyzed_at=detail.analyzed_at if detail else None,
+        one_line=analysis.one_line if analysis else None,
+        headline=analysis.headline if analysis else None,
+        short_summary_md=analysis.short_summary_md if analysis else None,
+        full_analysis_md=analysis.full_analysis_md if analysis else None,
+        bullet_points=analysis.bullet_points if analysis else None,
+        key_points=analysis.key_points if analysis else None,
+        insights=analysis.insights if analysis else None,
+        entities=analysis.entities if analysis else None,
+        sentiment=analysis.sentiment if analysis else None,
+        confidence_score=analysis.confidence_score if analysis else None,
+        model_name=analysis.model_name if analysis else None,
+        analyzed_at=analysis.analyzed_at if analysis else None,
         tags=tags,
+    )
+
+
+class ReanalyzeRequest(BaseModel):
+    custom_prompt: Optional[str] = Field(
+        None, description="해당 영상 전용 분석 프롬프트. 미입력 시 기본 프롬프트 사용."
     )
 
 
 @router.post(
     "/videos/{video_pk}/reanalyze",
-    status_code=status.HTTP_202_ACCEPTED,
+    status_code=status.HTTP_200_OK,
     response_model=PollTriggerResponse,
 )
 async def reanalyze_video(
     video_pk: int,
+    body: ReanalyzeRequest = ReanalyzeRequest(),
     session: AsyncSession = Depends(get_pg_session),
 ):
-    """영상 재분석 트리거 (status → pending, retry_count 초기화)."""
+    """영상 재분석 즉시 시작 (status → processing, retry_count 초기화)."""
     video = await session.get(YoutubeVideo, video_pk)
     if not video:
         raise HTTPException(status_code=404, detail="영상을 찾을 수 없습니다.")
@@ -454,7 +533,7 @@ async def reanalyze_video(
         update(YoutubeVideo)
         .where(YoutubeVideo.video_pk == video_pk)
         .values(
-            analysis_status="pending",
+            analysis_status="processing",
             retry_count=0,
             analysis_error=None,
             updated_at=datetime.now(timezone.utc),
@@ -462,22 +541,33 @@ async def reanalyze_video(
     )
 
     job_id = str(uuid.uuid4())
-    asyncio.create_task(_trigger_reanalyze(video_pk))
+    asyncio.create_task(_trigger_reanalyze(video_pk, custom_prompt=body.custom_prompt))
     return PollTriggerResponse(
         job_id=job_id,
-        message=f"영상 (video_pk={video_pk}) 재분석 요청이 접수되었습니다.",
+        message=f"영상 (video_pk={video_pk}) 재분석을 시작합니다.",
     )
 
 
-async def _trigger_reanalyze(video_pk: int) -> None:
+async def _trigger_reanalyze(video_pk: int, custom_prompt: Optional[str] = None) -> None:
+    import time
     from app.services.youtube.analyzer import build_analysis_pipeline
     from app.services.bots.youtube_bot import notify_video_callback
     from app.services.youtube.db_engine import db_engine_manager
+    from app.services.youtube.job_logger import (
+        _JOB_TYPE_VIDEO_REANALYZE,
+        _STATUS_FAIL,
+        _STATUS_SUCCESS,
+        write_job_log,
+    )
+
+    start = time.monotonic()
 
     try:
         engine = await db_engine_manager.get_engine()
         factory = async_sessionmaker(engine, expire_on_commit=False)
         pipeline = build_analysis_pipeline(notify_callback=notify_video_callback)
+        channel_pk: Optional[int] = None
+
         async with factory() as sess:
             async with sess.begin():
                 video = await sess.get(YoutubeVideo, video_pk)
@@ -485,6 +575,7 @@ async def _trigger_reanalyze(video_pk: int) -> None:
                     print(f"⚠️  재분석 대상 영상 없음 (video_pk={video_pk})")
                     return
 
+                channel_pk = video.channel_pk
                 ch_result = await sess.execute(
                     select(YoutubeChannel).where(YoutubeChannel.channel_pk == video.channel_pk)
                 )
@@ -496,9 +587,162 @@ async def _trigger_reanalyze(video_pk: int) -> None:
                     video_url=video.video_url,
                     channel_name=channel.channel_name if channel else "",
                     published_at_str=video.published_at.isoformat(),
+                    custom_prompt=custom_prompt,
                 )
+
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        await write_job_log(
+            factory,
+            job_type=_JOB_TYPE_VIDEO_REANALYZE,
+            status=_STATUS_SUCCESS,
+            message="재분석 완료" + (" (커스텀 프롬프트)" if custom_prompt else ""),
+            duration_ms=elapsed_ms,
+            channel_pk=channel_pk,
+            video_pk=video_pk,
+        )
+
     except Exception as exc:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
         print(f"⚠️  재분석 실패 (video_pk={video_pk}): {exc}")
+        try:
+            from app.services.youtube.db_engine import db_engine_manager
+            engine = await db_engine_manager.get_engine()
+            factory = async_sessionmaker(engine, expire_on_commit=False)
+            async with factory() as sess:
+                async with sess.begin():
+                    await sess.execute(
+                        update(YoutubeVideo)
+                        .where(YoutubeVideo.video_pk == video_pk)
+                        .values(
+                            analysis_status="failed",
+                            analysis_error=str(exc),
+                            updated_at=datetime.now(timezone.utc),
+                        )
+                    )
+            await write_job_log(
+                factory,
+                job_type=_JOB_TYPE_VIDEO_REANALYZE,
+                status=_STATUS_FAIL,
+                message=str(exc)[:500],
+                duration_ms=elapsed_ms,
+                video_pk=video_pk,
+            )
+        except Exception as update_exc:
+            print(f"⚠️  재분석 실패 상태 업데이트 오류 (video_pk={video_pk}): {update_exc}")
+
+
+@router.post(
+    "/instant-analyze",
+    status_code=status.HTTP_200_OK,
+    response_model=InstantAnalyzeResponse,
+)
+async def instant_analyze(
+    body: InstantAnalyzeRequest,
+    session: AsyncSession = Depends(get_pg_session),
+):
+    """
+    YouTube URL을 입력받아 즉시 분석 시작.
+    - 이미 DB에 있는 영상이면 기존 video_pk 반환 (existing=True)
+    - 없으면 YouTube API로 메타 조회 → 가상 채널 소속으로 INSERT → 분석 시작
+    """
+    from app.services.youtube.youtube_api import YouTubeAPIClient, YouTubeAPIError
+
+    video_id = _extract_video_id(body.video_url)
+    if not video_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="유효한 YouTube URL을 입력해주세요. (watch?v=, youtu.be/, /shorts/ 형식 지원)",
+        )
+
+    # 이미 DB에 있는 영상이면 기존 결과 페이지로 이동
+    existing_row = (
+        await session.execute(
+            select(YoutubeVideo).where(YoutubeVideo.video_id == video_id)
+        )
+    ).scalar_one_or_none()
+    if existing_row:
+        return InstantAnalyzeResponse(
+            video_pk=existing_row.video_pk,
+            video_id=existing_row.video_id,
+            title=existing_row.title,
+            source_channel_name=existing_row.source_channel_name or INSTANT_CHANNEL_NAME,
+            analysis_status=existing_row.analysis_status,
+            existing=True,
+            message="이미 분석된 영상입니다. 기존 결과 페이지로 이동합니다.",
+        )
+
+    # YouTube API로 영상 메타데이터 조회
+    mgr = get_youtube_settings_manager()
+    poll_cfg = mgr.get_polling()
+    if not poll_cfg.youtube_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="YouTube API 키가 설정되지 않았습니다.",
+        )
+
+    api_client = YouTubeAPIClient(polling=poll_cfg)
+    try:
+        metas = await api_client.get_video_details([video_id])
+    except YouTubeAPIError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    finally:
+        await api_client.aclose()
+
+    if not metas:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"YouTube에서 영상을 찾을 수 없습니다. (video_id={video_id})",
+        )
+
+    vm = metas[0]
+
+    # 가상 채널 확보
+    instant_ch = await ensure_instant_channel(session)
+
+    # 영상 INSERT
+    from datetime import datetime as _dt
+    from dateutil import parser as _dp
+
+    try:
+        published_at = _dp.parse(vm.published_at)
+    except Exception:
+        published_at = _dt.now(timezone.utc)
+
+    new_video = YoutubeVideo(
+        channel_pk=instant_ch.channel_pk,
+        video_id=vm.video_id,
+        video_url=vm.video_url,
+        title=vm.title,
+        description=vm.description,
+        thumbnail_url=vm.thumbnail_url,
+        published_at=published_at,
+        duration_seconds=_parse_iso_duration(vm.duration),
+        view_count=vm.view_count,
+        like_count=vm.like_count,
+        source_channel_name=vm.channel_title or INSTANT_CHANNEL_NAME,
+        analysis_status="pending",
+        retry_count=0,
+    )
+    session.add(new_video)
+    await session.flush()  # video_pk 할당
+
+    video_pk = new_video.video_pk
+    source_channel_name = new_video.source_channel_name or INSTANT_CHANNEL_NAME
+
+    # 분석 비동기 시작
+    asyncio.create_task(
+        _trigger_reanalyze(video_pk, custom_prompt=body.custom_prompt)
+    )
+
+    return InstantAnalyzeResponse(
+        video_pk=video_pk,
+        video_id=vm.video_id,
+        title=vm.title,
+        source_channel_name=source_channel_name,
+        analysis_status="pending",
+        existing=False,
+        message=f"'{vm.title}' 분석을 시작합니다.",
+    )
 
 
 @router.post(
@@ -557,25 +801,22 @@ async def list_tags(
     limit: int = Query(50, ge=1, le=200),
     session: AsyncSession = Depends(get_pg_session),
 ):
-    """태그 클라우드 (영상 count 내림차순)."""
-    count_col = func.count(YoutubeVideoTag.video_pk).label("video_count")
+    """태그 클라우드 (video_count 내림차순, 사전 집계 컬럼 사용)."""
     stmt = (
-        select(YoutubeTag, count_col)
-        .join(YoutubeVideoTag, YoutubeTag.tag_pk == YoutubeVideoTag.tag_pk, isouter=True)
-        .group_by(YoutubeTag.tag_pk)
-        .having(count_col >= min_count)
-        .order_by(count_col.desc())
+        select(YoutubeTag)
+        .where(YoutubeTag.video_count >= min_count)
+        .order_by(YoutubeTag.video_count.desc())
         .limit(limit)
     )
-    rows = (await session.execute(stmt)).all()
+    tags = (await session.execute(stmt)).scalars().all()
     return [
         TagResponse(
-            tag_pk=tag.tag_pk,
-            name=tag.name,
-            tag_type=tag.tag_type,
-            video_count=cnt or 0,
+            tag_pk=t.tag_pk,
+            name=t.name,
+            tag_type=t.tag_type,
+            video_count=t.video_count,
         )
-        for tag, cnt in rows
+        for t in tags
     ]
 
 
@@ -950,3 +1191,48 @@ def update_runtime_settings(body: RuntimeSettingsUpdate, db=Depends(_settings_db
         pass
 
     return get_runtime_settings()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 설정 — 프롬프트
+# ──────────────────────────────────────────────────────────────────────────────
+
+@router.get("/settings/prompts", response_model=PromptSettingsResponse)
+def get_prompt_settings():
+    """현재 적용 중인 분석 프롬프트 조회. DB 미설정 시 코드 기본값 반환."""
+    from app.services.youtube.analyzer import ANALYSIS_PROMPT_V1, FALLBACK_PROMPT_V1, PROMPT_VERSION
+
+    mgr = get_youtube_settings_manager()
+    p = mgr.get_prompts()
+    return PromptSettingsResponse(
+        primary_prompt=p.primary_prompt or ANALYSIS_PROMPT_V1,
+        fallback_prompt=p.fallback_prompt or FALLBACK_PROMPT_V1,
+        prompt_version=PROMPT_VERSION,
+    )
+
+
+@router.put("/settings/prompts", response_model=PromptSettingsResponse)
+def update_prompt_settings(body: PromptSettingsUpdate, db=Depends(_settings_db)):
+    """분석 프롬프트 수정. 빈 문자열이면 코드 기본값으로 초기화."""
+    data = body.model_dump(exclude_none=True)
+    if "primary_prompt" in data:
+        _upsert_setting(db, "prompts", "primary_prompt", data["primary_prompt"])
+    if "fallback_prompt" in data:
+        _upsert_setting(db, "prompts", "fallback_prompt", data["fallback_prompt"])
+    mgr = get_youtube_settings_manager()
+    mgr.invalidate("prompts")
+    return get_prompt_settings()
+
+
+@router.delete("/settings/prompts/reset", response_model=PromptSettingsResponse)
+def reset_prompt_settings(db=Depends(_settings_db)):
+    """분석 프롬프트를 코드 기본값으로 초기화."""
+    from sqlalchemy import text as sa_text
+
+    db.execute(
+        sa_text("DELETE FROM youtube_settings WHERE category = 'prompts'")
+    )
+    db.commit()
+    mgr = get_youtube_settings_manager()
+    mgr.invalidate("prompts")
+    return get_prompt_settings()

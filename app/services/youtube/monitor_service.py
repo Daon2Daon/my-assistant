@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence  # noqa: F401
 
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -18,6 +18,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.models.youtube_channel import YoutubeChannel
 from app.models.youtube_video import YoutubeVideo
 from app.services.youtube.db_engine import DBNotConfiguredError, db_engine_manager
+from app.services.youtube.job_logger import (
+    JobTimer,
+    _JOB_TYPE_CHANNEL_POLL,
+    _JOB_TYPE_GATEWAY_HEALTH,
+    _JOB_TYPE_VIDEO_ANALYZE,
+    _STATUS_FAIL,
+    _STATUS_SKIP,
+    _STATUS_SUCCESS,
+    write_job_log,
+)
 from app.services.youtube.settings_manager import PollingSettings, get_youtube_settings_manager
 from app.services.youtube.youtube_api import (
     PlaylistItemMeta,
@@ -244,24 +254,51 @@ async def _youtube_master_poll_async() -> None:
 
     async def _process_one(channel: YoutubeChannel) -> None:
         async with poll_sem:
-            try:
-                api_client = get_youtube_api_client(polling=polling_cfg)
-                async with session_factory() as sess:
-                    async with sess.begin():
-                        new_pks = await service.process_channel(
-                            channel=channel,
-                            session=sess,
-                            api_client=api_client,
-                        )
-                await api_client.aclose()
+            timer = JobTimer()
+            with timer:
+                try:
+                    api_client = get_youtube_api_client(polling=polling_cfg)
+                    async with session_factory() as sess:
+                        async with sess.begin():
+                            new_pks = await service.process_channel(
+                                channel=channel,
+                                session=sess,
+                                api_client=api_client,
+                            )
+                    await api_client.aclose()
 
-                if new_pks:
-                    await _analyze_batch(new_pks, analysis_sem, polling_cfg)
+                    await write_job_log(
+                        session_factory,
+                        job_type=_JOB_TYPE_CHANNEL_POLL,
+                        status=_STATUS_SUCCESS,
+                        message=f"신규 영상 {len(new_pks)}건 수집" if new_pks else "신규 영상 없음",
+                        duration_ms=timer.elapsed_ms,
+                        channel_pk=channel.channel_pk,
+                    )
 
-            except YouTubeQuotaExceededError as e:
-                print(f"⚠️  YouTube 쿼터 초과: {e}")
-            except Exception as e:
-                print(f"❌ 채널 처리 실패 (channel_pk={channel.channel_pk}): {e}")
+                    if new_pks:
+                        await _analyze_batch(new_pks, analysis_sem, polling_cfg)
+
+                except YouTubeQuotaExceededError as e:
+                    print(f"⚠️  YouTube 쿼터 초과: {e}")
+                    await write_job_log(
+                        session_factory,
+                        job_type=_JOB_TYPE_CHANNEL_POLL,
+                        status=_STATUS_SKIP,
+                        message=f"쿼터 초과: {e}",
+                        duration_ms=timer.elapsed_ms,
+                        channel_pk=channel.channel_pk,
+                    )
+                except Exception as e:
+                    print(f"❌ 채널 처리 실패 (channel_pk={channel.channel_pk}): {e}")
+                    await write_job_log(
+                        session_factory,
+                        job_type=_JOB_TYPE_CHANNEL_POLL,
+                        status=_STATUS_FAIL,
+                        message=str(e)[:500],
+                        duration_ms=timer.elapsed_ms,
+                        channel_pk=channel.channel_pk,
+                    )
 
     await asyncio.gather(*[_process_one(ch) for ch in due_channels], return_exceptions=True)
     print("✅ YouTube 마스터 폴링 완료")
@@ -291,30 +328,54 @@ async def _analyze_batch(
 
     async def _analyze_one(video_pk: int) -> None:
         async with sem:
-            async with session_factory() as sess:
-                async with sess.begin():
-                    stmt = select(YoutubeVideo).where(YoutubeVideo.video_pk == video_pk)
-                    result = await sess.execute(stmt)
-                    video = result.scalar_one_or_none()
-                    if not video:
-                        return
+            timer = JobTimer()
+            channel_pk: Optional[int] = None
+            with timer:
+                try:
+                    async with session_factory() as sess:
+                        async with sess.begin():
+                            stmt = select(YoutubeVideo).where(YoutubeVideo.video_pk == video_pk)
+                            result = await sess.execute(stmt)
+                            video = result.scalar_one_or_none()
+                            if not video:
+                                return
 
-                    ch_stmt = select(YoutubeChannel).where(
-                        YoutubeChannel.channel_pk == video.channel_pk
+                            ch_stmt = select(YoutubeChannel).where(
+                                YoutubeChannel.channel_pk == video.channel_pk
+                            )
+                            ch_result = await sess.execute(ch_stmt)
+                            channel = ch_result.scalar_one_or_none()
+                            channel_pk = video.channel_pk
+
+                            await pipeline.run_and_save(
+                                session=sess,
+                                video_pk=video_pk,
+                                video_url=video.video_url,
+                                channel_name=channel.channel_name if channel else "",
+                                published_at_str=video.published_at.isoformat(),
+                            )
+
+                    await write_job_log(
+                        session_factory,
+                        job_type=_JOB_TYPE_VIDEO_ANALYZE,
+                        status=_STATUS_SUCCESS,
+                        message="분석 완료",
+                        duration_ms=timer.elapsed_ms,
+                        channel_pk=channel_pk,
+                        video_pk=video_pk,
                     )
-                    ch_result = await sess.execute(ch_stmt)
-                    channel = ch_result.scalar_one_or_none()
 
-                    try:
-                        await pipeline.run_and_save(
-                            session=sess,
-                            video_pk=video_pk,
-                            video_url=video.video_url,
-                            channel_name=channel.channel_name if channel else "",
-                            published_at_str=video.published_at.isoformat(),
-                        )
-                    except Exception as e:
-                        print(f"❌ 분석 실패 (video_pk={video_pk}): {e}")
+                except Exception as e:
+                    print(f"❌ 분석 실패 (video_pk={video_pk}): {e}")
+                    await write_job_log(
+                        session_factory,
+                        job_type=_JOB_TYPE_VIDEO_ANALYZE,
+                        status=_STATUS_FAIL,
+                        message=str(e)[:500],
+                        duration_ms=timer.elapsed_ms,
+                        channel_pk=channel_pk,
+                        video_pk=video_pk,
+                    )
 
     if interval_sec > 0:
         # 순차 처리: 영상 사이마다 대기하여 API 호출 제한 회피
@@ -336,17 +397,43 @@ def youtube_master_poll_sync() -> None:
 async def _youtube_gateway_health_async() -> None:
     """litellm Gateway 헬스체크 (5분 주기)."""
     try:
-        from app.services.youtube.llm_client import get_litellm_client
+        engine = await db_engine_manager.get_engine()
+    except Exception:
+        engine = None
 
-        mgr = get_youtube_settings_manager()
-        ai_cfg = mgr.get_ai_gateway()
-        if not ai_cfg.base_url or not ai_cfg.api_key:
-            return
-        client = get_litellm_client(settings=ai_cfg)
-        await client.get_models(force_refresh=True)
-        await client.aclose()
-    except Exception as e:
-        print(f"⚠️  YouTube Gateway 헬스체크 실패: {e}")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False) if engine else None
+    timer = JobTimer()
+
+    with timer:
+        try:
+            from app.services.youtube.llm_client import get_litellm_client
+
+            mgr = get_youtube_settings_manager()
+            ai_cfg = mgr.get_ai_gateway()
+            if not ai_cfg.base_url or not ai_cfg.api_key:
+                return
+            client = get_litellm_client(settings=ai_cfg)
+            await client.get_models(force_refresh=True)
+            await client.aclose()
+
+            if session_factory:
+                await write_job_log(
+                    session_factory,
+                    job_type=_JOB_TYPE_GATEWAY_HEALTH,
+                    status=_STATUS_SUCCESS,
+                    message="Gateway 응답 정상",
+                    duration_ms=timer.elapsed_ms,
+                )
+        except Exception as e:
+            print(f"⚠️  YouTube Gateway 헬스체크 실패: {e}")
+            if session_factory:
+                await write_job_log(
+                    session_factory,
+                    job_type=_JOB_TYPE_GATEWAY_HEALTH,
+                    status=_STATUS_FAIL,
+                    message=str(e)[:500],
+                    duration_ms=timer.elapsed_ms,
+                )
 
 
 def youtube_gateway_health_sync() -> None:

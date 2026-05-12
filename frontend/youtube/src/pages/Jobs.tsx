@@ -4,7 +4,22 @@ import Spinner from '../components/Spinner'
 import ErrorBanner from '../components/ErrorBanner'
 import Pagination from '../components/Pagination'
 
-const JOB_TYPES = ['', 'channel_poll', 'video_analyze', 'gateway_health']
+const JOB_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: '전체' },
+  { value: 'channel_poll', label: '채널 모니터링' },
+  { value: 'video_analyze', label: '영상 분석' },
+  { value: 'gateway_health', label: '게이트웨이 헬스' },
+]
+
+function formatJobTypeLabel(jobType: string): string {
+  const map: Record<string, string> = {
+    channel_poll: '채널 모니터링',
+    video_analyze: '영상 분석',
+    gateway_health: '게이트웨이 헬스',
+  }
+  return map[jobType] ?? jobType
+}
+
 const STATUS_VALUES = ['', 'success', 'skip', 'fail']
 
 function StatusBadge({ status }: { status: string }) {
@@ -146,8 +161,8 @@ export default function Jobs() {
             onChange={e => setJobType(e.target.value)}
             className="px-3 py-1.5 border border-gray-300 rounded-md text-sm"
           >
-            {JOB_TYPES.map(t => (
-              <option key={t} value={t}>{t || '전체'}</option>
+            {JOB_TYPE_OPTIONS.map((o) => (
+              <option key={o.value || 'all'} value={o.value}>{o.label}</option>
             ))}
           </select>
         </div>
@@ -202,7 +217,7 @@ export default function Jobs() {
               ) : (
                 items.map(log => (
                   <tr key={log.log_pk} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-2.5 font-mono text-xs text-gray-700">{log.job_type}</td>
+                    <td className="px-4 py-2.5 text-xs text-gray-700">{formatJobTypeLabel(log.job_type)}</td>
                     <td className="px-4 py-2.5">
                       <StatusBadge status={log.status} />
                     </td>

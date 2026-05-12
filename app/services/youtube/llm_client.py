@@ -144,7 +144,9 @@ class LiteLLMClient:
         if not self.api_key:
             raise LiteLLMError("AI Gateway api_key가 비어 있습니다.")
 
-        url = f"{self.base_url}/gemini/v1beta/models/{model}:generateContent"
+        # LiteLLM 형식(예: "gemini/gemini-2.5-flash")에서 모델 ID만 추출
+        model_id = model.split("/")[-1] if "/" in model else model
+        url = f"{self.base_url}/gemini/v1beta/models/{model_id}:generateContent"
         body: Dict[str, Any] = {
             "contents": [
                 {
@@ -153,16 +155,14 @@ class LiteLLMClient:
                 }
             ],
         }
-        gen_cfg: Dict[str, Any] = {}
+        gen_cfg: Dict[str, Any] = {"responseMimeType": "application/json"}
         if temperature is not None:
             gen_cfg["temperature"] = temperature
         if max_output_tokens is not None:
             gen_cfg["maxOutputTokens"] = max_output_tokens
         if response_schema is not None:
-            gen_cfg["responseMimeType"] = "application/json"
             gen_cfg["responseSchema"] = response_schema
-        if gen_cfg:
-            body["generationConfig"] = gen_cfg
+        body["generationConfig"] = gen_cfg
 
         resp = await self._client.post(url, params={"key": self.api_key}, json=body)
         if resp.status_code != 200:
@@ -172,10 +172,17 @@ class LiteLLMClient:
         raw_text = _pick_text_from_gemini(payload)
         if not raw_text:
             raise LiteLLMError("Gemini 응답에서 텍스트를 찾지 못했습니다.")
+
+        # 마크다운 코드펜스(```json ... ```)로 감싸인 경우 제거
+        cleaned = raw_text.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.splitlines()
+            cleaned = "\n".join(line for line in lines if not line.startswith("```")).strip()
+
         try:
-            data = json.loads(raw_text)
+            data = json.loads(cleaned)
         except Exception as e:
-            raise LiteLLMError("Gemini 구조화 출력 JSON 파싱 실패") from e
+            raise LiteLLMError(f"Gemini 구조화 출력 JSON 파싱 실패: {e}") from e
         return AnalyzerResult(data=data, raw_text=raw_text)
 
     async def chat(

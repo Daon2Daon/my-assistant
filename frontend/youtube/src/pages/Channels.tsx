@@ -150,7 +150,7 @@ export default function Channels() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">폴링 주기 (분)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">모니터링 주기 (분)</label>
               <input
                 type="number"
                 min={10}
@@ -175,7 +175,7 @@ export default function Channels() {
                 checked={addForm.auto_poll_now}
                 onChange={(e) => setAddForm({ ...addForm, auto_poll_now: e.target.checked })}
               />
-              즉시 폴링
+              즉시 모니터링
             </label>
           </div>
           <div className="flex gap-2 justify-end">
@@ -212,8 +212,8 @@ export default function Channels() {
                 <th className="text-center px-3 py-3 font-medium text-gray-600">활성</th>
                 <th className="text-center px-3 py-3 font-medium text-gray-600">알림</th>
                 <th className="text-left px-3 py-3 font-medium text-gray-600">카테고리</th>
-                <th className="text-right px-3 py-3 font-medium text-gray-600">폴링(분)</th>
-                <th className="text-left px-3 py-3 font-medium text-gray-600">최근 폴링</th>
+                <th className="text-right px-3 py-3 font-medium text-gray-600">모니터링(분)</th>
+                <th className="text-left px-3 py-3 font-medium text-gray-600">최근 모니터링</th>
                 <th className="px-3 py-3"></th>
               </tr>
             </thead>
@@ -249,7 +249,7 @@ export default function Channels() {
                         disabled={pollingPk === ch.channel_pk}
                         className="px-2 py-1 text-xs rounded bg-blue-50 text-blue-600 hover:bg-blue-100 disabled:opacity-50"
                       >
-                        {pollingPk === ch.channel_pk ? '...' : '폴링'}
+                        {pollingPk === ch.channel_pk ? '...' : '모니터링'}
                       </button>
                       <button
                         onClick={() => setDeleteTarget(ch)}

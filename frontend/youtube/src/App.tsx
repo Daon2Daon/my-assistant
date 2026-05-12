@@ -9,6 +9,8 @@ import Jobs from './pages/Jobs'
 import DatabaseSettings from './pages/settings/DatabaseSettings'
 import AIGatewaySettings from './pages/settings/AIGatewaySettings'
 import RuntimeSettings from './pages/settings/RuntimeSettings'
+import PromptSettings from './pages/settings/PromptSettings'
+import InstantAnalyze from './pages/InstantAnalyze'
 
 export default function App() {
   return (
@@ -23,6 +25,8 @@ export default function App() {
         <Route path="settings/database" element={<DatabaseSettings />} />
         <Route path="settings/ai-gateway" element={<AIGatewaySettings />} />
         <Route path="settings/runtime" element={<RuntimeSettings />} />
+        <Route path="settings/prompts" element={<PromptSettings />} />
+        <Route path="instant-analyze" element={<InstantAnalyze />} />
         <Route path="*" element={<Navigate to="/youtube/" replace />} />
       </Route>
     </Routes>

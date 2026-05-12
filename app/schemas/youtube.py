@@ -20,9 +20,9 @@ class ChannelCreate(BaseModel):
         examples=["@JTBC_News", "UCxxxxxxxxxxxxxxxxxxxxxxxx"],
     )
     category: Optional[str] = None
-    poll_interval_min: int = Field(720, ge=10, description="폴링 주기 (분), 최소 10분")
+    poll_interval_min: int = Field(720, ge=10, description="모니터링 주기 (분), 최소 10분")
     notify_enabled: bool = True
-    auto_poll_now: bool = Field(False, description="추가 즉시 폴링 트리거 여부")
+    auto_poll_now: bool = Field(False, description="추가 즉시 모니터링 트리거 여부")
 
 
 class ChannelUpdate(BaseModel):
@@ -80,10 +80,11 @@ class VideoResponse(BaseModel):
     notified_at: Optional[datetime] = None
     created_at: datetime
     summary: Optional[VideoSummaryEmbed] = None
+    source_channel_name: Optional[str] = None
 
 
 class VideoDetailResponse(BaseModel):
-    """영상 상세 (detail + summary + tags 포함)."""
+    """영상 상세 (video_analysis + tags 포함)."""
     model_config = ConfigDict(from_attributes=True)
 
     video_pk: int
@@ -121,6 +122,7 @@ class VideoDetailResponse(BaseModel):
 
     # 태그
     tags: List[str] = Field(default_factory=list)
+    source_channel_name: Optional[str] = None
 
 
 # ── 페이지네이션 래퍼 ──────────────────────────────────────────────────────────
@@ -180,8 +182,27 @@ class StatsResponse(BaseModel):
     last_poll_at: Optional[datetime] = None
 
 
-# ── 즉시 폴링 응답 ─────────────────────────────────────────────────────────────
+# ── 즉시 모니터링 트리거 응답 ──────────────────────────────────────────────────
 
 class PollTriggerResponse(BaseModel):
     job_id: str
+    message: str
+
+
+# ── 즉시(추가 영상) 분석 ────────────────────────────────────────────────────────
+
+class InstantAnalyzeRequest(BaseModel):
+    """YouTube URL을 입력받아 즉시 분석 시작."""
+    video_url: str = Field(..., description="분석할 YouTube 영상 URL")
+    custom_prompt: Optional[str] = Field(None, description="이 영상 전용 프롬프트 (선택)")
+
+
+class InstantAnalyzeResponse(BaseModel):
+    """즉시 분석 트리거 응답."""
+    video_pk: int
+    video_id: str
+    title: str
+    source_channel_name: str
+    analysis_status: str
+    existing: bool = Field(description="True = 이미 DB에 있던 영상, False = 신규 등록 후 분석 시작")
     message: str

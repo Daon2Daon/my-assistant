@@ -29,6 +29,8 @@ class YoutubeVideo(YoutubePGBase):
     analysis_error = Column(Text, nullable=True)
     retry_count = Column(Integer, nullable=False, default=0)
     notified_at = Column(DateTime(timezone=True), nullable=True)
+    # 즉시 분석(추가 영상)용: 등록되지 않은 채널의 실제 채널명 보존
+    source_channel_name = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

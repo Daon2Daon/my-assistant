@@ -138,13 +138,18 @@ export default function Videos() {
                   </span>
                 )}
               </div>
-              <div className="flex-1 min-w-0 py-1 space-y-1.5">
+                <div className="flex-1 min-w-0 py-1 space-y-1.5">
                 <p className="font-medium text-gray-900 line-clamp-2 text-sm leading-snug">{v.title}</p>
                 {v.summary?.one_line && (
                   <p className="text-xs text-gray-500 line-clamp-1">{v.summary.one_line}</p>
                 )}
                 <div className="flex items-center gap-2 flex-wrap">
                   <StatusBadge status={v.analysis_status} />
+                  {v.source_channel_name && (
+                    <span className="text-xs text-purple-600 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full">
+                      추가 · {v.source_channel_name}
+                    </span>
+                  )}
                   {v.notified_at && (
                     <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">알림 발송</span>
                   )}

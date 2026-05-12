@@ -114,7 +114,7 @@ export default function RuntimeSettings() {
       const updated = await runtimeApi.update(payload)
       setData(updated)
       setSaved(true)
-      setSaveMessage('저장되었습니다. 마스터 폴링 잡 주기가 즉시 반영됩니다.')
+      setSaveMessage('저장되었습니다. 마스터 모니터링 잡 주기가 즉시 반영됩니다.')
       setTimeout(() => setSaved(false), 4000)
     } catch (e) {
       alert((e as Error).message)
@@ -131,8 +131,8 @@ export default function RuntimeSettings() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl font-bold text-gray-900">폴링 / 알림 설정</h1>
-      <p className="text-sm text-gray-500">YouTube 폴링 주기, API 할당량, Telegram 알림 옵션을 설정합니다.</p>
+      <h1 className="text-2xl font-bold text-gray-900">모니터링 / 알림 설정</h1>
+      <p className="text-sm text-gray-500">YouTube 모니터링 주기, API 할당량, Telegram 알림 옵션을 설정합니다.</p>
 
       <form onSubmit={handleSave} className="space-y-5">
         {/* YouTube API 설정 */}
@@ -164,13 +164,13 @@ export default function RuntimeSettings() {
           </div>
         </div>
 
-        {/* 폴링 설정 */}
+        {/* 모니터링 설정 */}
         <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
-          <h2 className="font-semibold text-gray-800 border-b pb-2">폴링 설정</h2>
+          <h2 className="font-semibold text-gray-800 border-b pb-2">모니터링 설정</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Master 폴링 주기 (분)
+                Master 모니터링 주기 (분)
               </label>
               <input
                 type="number" min={1} max={60}
@@ -182,7 +182,7 @@ export default function RuntimeSettings() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                기본 채널 폴링 주기 (분)
+                기본 채널 모니터링 주기 (분)
               </label>
               <input
                 type="number" min={10} max={10080}

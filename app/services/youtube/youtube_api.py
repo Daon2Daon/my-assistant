@@ -57,6 +57,8 @@ class VideoMeta:
     duration: str | None
     view_count: int | None
     like_count: int | None
+    channel_id: str | None = None
+    channel_title: str | None = None
 
 
 _UC_ID_RE = re.compile(r"^UC[a-zA-Z0-9_-]{20,}$")
@@ -312,6 +314,8 @@ class YouTubeAPIClient:
                     duration=cdetails.get("duration"),
                     view_count=to_int(stats.get("viewCount")),
                     like_count=to_int(stats.get("likeCount")),
+                    channel_id=snippet.get("channelId"),
+                    channel_title=snippet.get("channelTitle"),
                 )
             )
         return out

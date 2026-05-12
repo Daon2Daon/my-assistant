@@ -113,6 +113,21 @@ class RuntimeSettingsResponse(BaseModel):
     low_confidence_threshold: float
 
 
+# ── 프롬프트 설정 ─────────────────────────────────────────────────────────────
+
+class PromptSettingsResponse(BaseModel):
+    primary_prompt: str = Field(description="경로 A (Gemini native) 기본 프롬프트")
+    fallback_prompt: str = Field(description="경로 B (OpenAI 호환) 폴백 프롬프트")
+    prompt_version: str
+
+
+class PromptSettingsUpdate(BaseModel):
+    primary_prompt: Optional[str] = None
+    fallback_prompt: Optional[str] = None
+
+
+# ── 런타임 설정 (polling + notification 통합) ─────────────────────────────────
+
 class RuntimeSettingsUpdate(BaseModel):
     # polling
     master_interval_min: Optional[int] = Field(None, ge=1)

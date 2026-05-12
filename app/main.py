@@ -90,6 +90,23 @@ async def startup_event():
     except Exception as e:
         print(f"⚠️  YouTube Job 등록 실패: {e}")
 
+    # YouTube 가상 채널(추가 영상 분석 전용) 초기화
+    try:
+        from app.services.youtube.db_engine import db_engine_manager, DBNotConfiguredError
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+        from app.routers.youtube import ensure_instant_channel
+
+        engine = await db_engine_manager.get_engine()
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with factory() as sess:
+            async with sess.begin():
+                await ensure_instant_channel(sess)
+        print("✅ YouTube 가상 채널 초기화 완료")
+    except DBNotConfiguredError:
+        pass  # DB 미설정 상태 — 첫 분석 요청 시 자동 생성
+    except Exception as e:
+        print(f"⚠️  YouTube 가상 채널 초기화 실패: {e}")
+
     # Weather 알림 Job 등록
     try:
         scheduler_service.setup_weather_job()

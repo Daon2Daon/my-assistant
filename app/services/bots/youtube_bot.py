@@ -32,8 +32,7 @@ from sqlalchemy import select, update
 from app.models.youtube_channel import YoutubeChannel
 from app.models.youtube_tag import YoutubeTag
 from app.models.youtube_video import YoutubeVideo
-from app.models.youtube_video_detail import YoutubeVideoDetail
-from app.models.youtube_video_summary import YoutubeVideoSummary
+from app.models.youtube_video_analysis import YoutubeVideoAnalysis
 from app.models.youtube_video_tag import YoutubeVideoTag
 from app.services.notification.telegram_sender import telegram_sender
 
@@ -171,26 +170,32 @@ class YoutubeBot:
         if video.notified_at is not None:
             return True  # 이미 발송됨
 
-        summary = await self._fetch_summary(session, video_pk)
-        detail = await self._fetch_detail(session, video_pk)
         channel = await self._fetch_channel(session, video.channel_pk)
+        if channel and not channel.notify_enabled:
+            return False  # 채널 알림 비활성화 (가상 채널 포함)
+
+        analysis = await self._fetch_analysis(session, video_pk)
         tags = await self._fetch_tag_names(session, video_pk)
 
-        if not summary:
-            print(f"⚠️  YoutubeBot: video_pk={video_pk} 요약 없음 — 발송 skip")
+        if not analysis:
+            print(f"⚠️  YoutubeBot: video_pk={video_pk} 분석 결과 없음 — 발송 skip")
             return False
 
-        confidence = detail.confidence_score if detail else None
+        # source_channel_name이 있으면 실제 채널명 사용 (추가 영상)
+        display_channel = (
+            video.source_channel_name
+            or (channel.channel_name if channel else "YouTube")
+        )
         text = build_notification_text(
-            channel_name=channel.channel_name if channel else "YouTube",
-            headline=summary.headline,
-            one_line=summary.one_line,
-            short_summary_md=summary.short_summary_md,
+            channel_name=display_channel,
+            headline=analysis.headline,
+            one_line=analysis.one_line,
+            short_summary_md=analysis.short_summary_md,
             tags=tags,
             published_at=video.published_at,
             duration_seconds=video.duration_seconds,
             video_url=video.video_url,
-            confidence_score=confidence,
+            confidence_score=analysis.confidence_score,
             low_confidence_threshold=low_confidence_threshold,
         )
 
@@ -241,20 +246,11 @@ class YoutubeBot:
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def _fetch_summary(
+    async def _fetch_analysis(
         self, session: AsyncSession, video_pk: int
-    ) -> Optional[YoutubeVideoSummary]:
-        stmt = select(YoutubeVideoSummary).where(
-            YoutubeVideoSummary.video_pk == video_pk
-        )
-        result = await session.execute(stmt)
-        return result.scalar_one_or_none()
-
-    async def _fetch_detail(
-        self, session: AsyncSession, video_pk: int
-    ) -> Optional[YoutubeVideoDetail]:
-        stmt = select(YoutubeVideoDetail).where(
-            YoutubeVideoDetail.video_pk == video_pk
+    ) -> Optional[YoutubeVideoAnalysis]:
+        stmt = select(YoutubeVideoAnalysis).where(
+            YoutubeVideoAnalysis.video_pk == video_pk
         )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()

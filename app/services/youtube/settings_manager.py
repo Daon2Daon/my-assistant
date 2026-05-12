@@ -142,6 +142,21 @@ class AIGatewaySettings:
 
 
 @dataclass
+@dataclass
+class PromptSettings:
+    primary_prompt: str = ""
+    fallback_prompt: str = ""
+
+    @classmethod
+    def from_rows(cls, rows: list[YoutubeSetting], fernet: Fernet | None) -> "PromptSettings":
+        by_key = {r.key: r for r in rows}
+        return cls(
+            primary_prompt=str(_row_typed(by_key.get("primary_prompt"), fernet) or ""),
+            fallback_prompt=str(_row_typed(by_key.get("fallback_prompt"), fernet) or ""),
+        )
+
+
+@dataclass
 class PollingSettings:
     master_interval_min: int = 12
     default_channel_interval_min: int = 720
@@ -262,6 +277,13 @@ class SettingsManager:
             return PollingSettings.from_rows(rows, self._fernet)
 
         return self._get_cached("polling", load)
+
+    def get_prompts(self) -> PromptSettings:
+        def load() -> PromptSettings:
+            rows = self._fetch_category("prompts")
+            return PromptSettings.from_rows(rows, self._fernet)
+
+        return self._get_cached("prompts", load)
 
     def get_notification(self) -> NotificationSettings:
         def load() -> NotificationSettings:

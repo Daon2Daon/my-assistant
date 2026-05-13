@@ -8,11 +8,13 @@ YouTube 모니터 모듈: PostgreSQL 동적 Async 엔진 매니저.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import ssl as ssl_std
+import weakref
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import quote_plus
 
 from sqlalchemy import text
@@ -247,8 +249,16 @@ async def _ensure_pg_trgm_extension(engine: AsyncEngine) -> None:
     최초 실행 시에는 youtube 스키마가 아직 존재하지 않아 PostgreSQL이
     InvalidSchemaNameError를 발생시킨다. pg_trgm은 DB 레벨 확장이므로
     항상 public 스키마에 명시적으로 설치한다.
+
+    public 스키마 자체가 없는 PostgreSQL 인스턴스(PG 15+ 또는 커스텀 설정)에서는
+    먼저 public 스키마를 생성한 뒤 확장을 설치한다.
     """
     async with engine.connect() as conn:
+        # public 스키마가 없으면 먼저 생성한다.
+        await conn.execute(
+            text("CREATE SCHEMA IF NOT EXISTS public"),
+            execution_options={"isolation_level": "AUTOCOMMIT"},
+        )
         await conn.execute(
             text("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public"),
             execution_options={"isolation_level": "AUTOCOMMIT"},
@@ -303,53 +313,77 @@ async def ensure_schema(engine: AsyncEngine) -> None:
             applied = await _fetch_applied_migration_versions(conn)
 
 
+def _sync_dispose_async_engine(engine: AsyncEngine) -> None:
+    """
+    이벤트 루프가 이미 닫힌 뒤(GC 등) 비동기 dispose를 호출할 수 없을 때 풀만 동기 정리한다.
+    APScheduler 스레드에서 asyncio.run()으로 만든 루프가 수명 종료될 때 누수·좀비 연결을 줄인다.
+    """
+    try:
+        engine.sync_engine.dispose(close=True)
+    except Exception:
+        pass
+
+
 class DBEngineManager:
     """
     SettingsManager 기반으로 동적 AsyncEngine을 제공한다.
 
-    - get_engine(): 설정 시그니처가 변경되면 엔진을 dispose 후 재생성
-    - recreate_engine(): 외부에서 강제로 엔진 무효화
+    - 이벤트 루프별로 별도 엔진을 둔다. FastAPI(uvicorn) 루프와 APScheduler가
+      `asyncio.run()`으로 쓰는 루프가 다르면, 단일 AsyncEngine을 공유할 때
+      asyncpg에서 "attached to a different loop"가 발생한다.
+    - get_engine(): (현재 루프, 설정 시그니처)에 맞는 엔진을 반환·필요 시 생성
+    - recreate_engine(): 등록된 모든 루프의 엔진을 dispose 후 무효화
     """
 
-    def __init__(self):
-        self._engine: Optional[AsyncEngine] = None
-        self._signature: Optional[str] = None
+    def __init__(self) -> None:
+        # 루프 객체가 GC되면 항목이 자동 제거된다. 값은 (엔진, DSN 시그니처).
+        self._engines: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, tuple[AsyncEngine, str]] = (
+            weakref.WeakKeyDictionary()
+        )
 
-    async def _dispose_existing(self) -> None:
-        if self._engine is not None:
-            await self._engine.dispose()
-        self._engine = None
+    async def _dispose_all_registered(self) -> None:
+        engines = [eng for (eng, _) in self._engines.values()]
+        self._engines.clear()
+        for eng in engines:
+            await eng.dispose()
 
     async def get_engine(self) -> AsyncEngine:
+        loop = asyncio.get_running_loop()
         mgr = get_youtube_settings_manager()
         cfg = mgr.get_database()
         sig = _dsn_signature(cfg)
-        if self._engine is None or self._signature != sig:
-            await self._dispose_existing()
-            dsn = _build_async_dsn(cfg)
-            ssl_arg = _asyncpg_ssl(cfg.sslmode)
-            # 앱 테이블은 스키마(기본 youtube) 우선, pg_trgm 등 확장 객체는 public에 있으므로 public 포함
-            _schema = (cfg.schema or "youtube").strip()
-            connect_args: dict[str, Any] = {
-                "server_settings": {"search_path": f"{_schema}, public"},
-                "ssl": ssl_arg if ssl_arg is not None else False,
-            }
 
-            self._engine = create_async_engine(
-                dsn,
-                pool_size=5,
-                max_overflow=5,
-                pool_pre_ping=True,
-                connect_args=connect_args,
-            )
-            self._signature = sig
-            # schema는 최초 생성 시/DSN 변경 시 보장
-            await ensure_schema(self._engine)
-        return self._engine
+        entry = self._engines.get(loop)
+        if entry is not None:
+            engine, stored_sig = entry
+            if stored_sig == sig:
+                return engine
+            await engine.dispose()
+            del self._engines[loop]
+
+        dsn = _build_async_dsn(cfg)
+        ssl_arg = _asyncpg_ssl(cfg.sslmode)
+        # 앱 테이블은 스키마(기본 youtube) 우선, pg_trgm 등 확장 객체는 public에 있으므로 public 포함
+        _schema = (cfg.schema or "youtube").strip()
+        connect_args: dict[str, Any] = {
+            "server_settings": {"search_path": f"{_schema}, public"},
+            "ssl": ssl_arg if ssl_arg is not None else False,
+        }
+
+        engine = create_async_engine(
+            dsn,
+            pool_size=5,
+            max_overflow=5,
+            pool_pre_ping=True,
+            connect_args=connect_args,
+        )
+        weakref.finalize(loop, _sync_dispose_async_engine, engine)
+        await ensure_schema(engine)
+        self._engines[loop] = (engine, sig)
+        return engine
 
     async def recreate_engine(self) -> None:
-        await self._dispose_existing()
-        self._signature = None
+        await self._dispose_all_registered()
         # settings cache는 다음 호출에서 다시 읽도록 무효화
         get_youtube_settings_manager().invalidate("database")
 

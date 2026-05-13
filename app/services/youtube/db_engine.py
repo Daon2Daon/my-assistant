@@ -455,6 +455,12 @@ class DBEngineManager:
       asyncpg에서 "attached to a different loop"가 발생한다.
     - get_engine(): (현재 루프, 설정 시그니처)에 맞는 엔진을 반환·필요 시 생성
     - recreate_engine(): 등록된 모든 루프의 엔진을 dispose 후 무효화
+
+    APScheduler는 `asyncio.run()`으로 매 실행마다 새 이벤트 루프를 생성한다.
+    새 루프마다 `ensure_schema`를 재실행하면 PostgreSQL에 불필요한 DDL 쿼리가
+    반복되므로, 이미 초기화에 성공한 DSN 시그니처는 `_initialized_sigs`에 기록하여
+    이후 새 루프에서는 스키마·마이그레이션 체크를 건너뛴다.
+    설정이 바뀌거나 `recreate_engine()`이 호출되면 초기화 기록을 리셋한다.
     """
 
     def __init__(self) -> None:
@@ -462,10 +468,14 @@ class DBEngineManager:
         self._engines: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, tuple[AsyncEngine, str]] = (
             weakref.WeakKeyDictionary()
         )
+        # ensure_schema를 한 번이라도 성공한 DSN 시그니처 집합.
+        # 새 이벤트 루프(APScheduler asyncio.run)에서도 중복 DDL을 방지한다.
+        self._initialized_sigs: set[str] = set()
 
     async def _dispose_all_registered(self) -> None:
         engines = [eng for (eng, _) in self._engines.values()]
         self._engines.clear()
+        self._initialized_sigs.clear()
         for eng in engines:
             await eng.dispose()
 
@@ -499,7 +509,11 @@ class DBEngineManager:
             connect_args=connect_args,
         )
         weakref.finalize(loop, _sync_dispose_async_engine, engine)
-        await ensure_schema(engine)
+        # 동일 DSN으로 다른 루프(APScheduler asyncio.run 등)에서 재진입 시
+        # 이미 성공한 ensure_schema를 재실행하지 않는다.
+        if sig not in self._initialized_sigs:
+            await ensure_schema(engine)
+            self._initialized_sigs.add(sig)
         self._engines[loop] = (engine, sig)
         return engine
 
@@ -510,16 +524,21 @@ class DBEngineManager:
 
     async def apply_schema(self) -> None:
         """
-        현재 루프의 엔진에 ensure_schema를 실행한다 (강제 재적용).
+        현재 루프의 엔진에 ensure_schema를 강제 재실행한다.
         엔진이 캐시되어 있으면 재사용하고, 없으면 신규 생성 후 ensure_schema를 한 번만 호출한다.
+        _initialized_sigs에서 해당 시그니처를 제거해 get_engine() 경로에서도 재실행되도록 한다.
         """
         loop = asyncio.get_running_loop()
         cfg = get_youtube_settings_manager().get_database()
         sig = _dsn_signature(cfg)
 
+        # 강제 재적용이므로 초기화 기록을 먼저 제거한다.
+        self._initialized_sigs.discard(sig)
+
         entry = self._engines.get(loop)
         if entry is not None and entry[1] == sig:
             await ensure_schema(entry[0])
+            self._initialized_sigs.add(sig)
         else:
             # 신규 생성: get_engine()이 내부적으로 ensure_schema를 호출한다.
             await self.get_engine()

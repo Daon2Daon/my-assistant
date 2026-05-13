@@ -347,7 +347,15 @@ async def _ensure_app_schema(engine: AsyncEngine, app_schema: str) -> None:
     스키마가 없고 권한도 없으면 트랜잭션 안에서 ProgrammingError 가 발생한다.
     마이그레이션 실행 전에 이 함수로 스키마를 미리 보장하면, SQL 안의
     CREATE SCHEMA IF NOT EXISTS 는 스키마가 이미 있어 NOTICE 만 내고 통과한다.
+
+    기본 스키마 `public`은 거의 항상 클러스터에 이미 있다. 설정만 `public`으로 두었을 때
+    CREATE SCHEMA public 이 DB 레벨 CREATE 권한을 요구해 앱 역할에서
+    permission denied for database 가 나는 경우가 있으므로, public 에 대해서는
+    생성을 시도하지 않는다.
     """
+    if app_schema.lower() == "public":
+        return
+
     autocommit_engine = engine.execution_options(isolation_level="AUTOCOMMIT")
     async with autocommit_engine.connect() as conn:
         if await _pg_namespace_schema_exists(conn, app_schema):

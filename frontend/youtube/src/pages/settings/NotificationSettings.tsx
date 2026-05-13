@@ -155,7 +155,8 @@ function ScheduledTimeEditor({
         </button>
       </div>
       <p className="text-xs text-gray-400">
-        매일 지정한 시각에 미발송 영상 분석 결과를 순차적으로 발송합니다. (최대 10개)
+        매일 지정한 시각마다 미발송 영상 분석 결과를 순차 발송합니다. 시각은 최대 10개까지 등록할 수 있으며,
+        한 시각(한 회차)당 발송 건수는 아래 &quot;예약발송 회당 최대 건수&quot;로 제한됩니다.
       </p>
     </div>
   )
@@ -181,6 +182,7 @@ export default function NotificationSettings() {
         telegram_enabled: d.telegram_enabled,
         send_mode: d.send_mode,
         scheduled_times: d.scheduled_times,
+        scheduled_max_per_run: d.scheduled_max_per_run,
         wait_between_messages_sec: d.wait_between_messages_sec,
         low_confidence_threshold: d.low_confidence_threshold,
       })
@@ -211,6 +213,7 @@ export default function NotificationSettings() {
         telegram_enabled: updated.telegram_enabled,
         send_mode: updated.send_mode,
         scheduled_times: updated.scheduled_times,
+        scheduled_max_per_run: updated.scheduled_max_per_run,
         wait_between_messages_sec: updated.wait_between_messages_sec,
         low_confidence_threshold: updated.low_confidence_threshold,
       })
@@ -348,11 +351,31 @@ export default function NotificationSettings() {
         {/* 예약 시각 설정 (예약발송 모드일 때만 표시) */}
         {sendMode === 'scheduled' && (
           <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
-            <h2 className="font-semibold text-gray-800 border-b pb-2">예약 발송 시각</h2>
-            <ScheduledTimeEditor
-              times={form.scheduled_times ?? []}
-              onChange={(v) => setF('scheduled_times', v)}
-            />
+            <h2 className="font-semibold text-gray-800 border-b pb-2">예약 발송</h2>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                예약발송 회당 최대 발송 건수
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={50}
+                value={form.scheduled_max_per_run ?? 5}
+                onChange={(e) => setF('scheduled_max_per_run', Number(e.target.value))}
+                className="w-full max-w-xs border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                각 예약 시각이 실행될 때마다, 분석 완료·미발송 영상을 오래된 순으로 최대 이 개수만큼만 Telegram으로 보냅니다.
+                더 남아 있으면 다음 예약 시각(또는 같은 시각의 다음 날 회차)에 이어서 발송합니다.
+              </p>
+            </div>
+            <div className="border-t pt-4">
+              <h3 className="text-sm font-medium text-gray-700 mb-2">예약 발송 시각</h3>
+              <ScheduledTimeEditor
+                times={form.scheduled_times ?? []}
+                onChange={(v) => setF('scheduled_times', v)}
+              />
+            </div>
             {(form.scheduled_times ?? []).length === 0 && (
               <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-amber-700 text-xs">
                 예약발송 모드에서는 최소 1개 이상의 시각을 등록해야 실제 발송이 이루어집니다.
@@ -396,6 +419,9 @@ export default function NotificationSettings() {
                 ? data.scheduled_times.join(', ')
                 : '(없음)'}
             </p>
+          )}
+          {data.send_mode === 'scheduled' && (
+            <p>예약발송 회당 최대: {data.scheduled_max_per_run}건</p>
           )}
           <p>건별 대기: {data.wait_between_messages_sec}초</p>
           <p>저신뢰도 임계값: {Math.round(data.low_confidence_threshold * 100)}%</p>

@@ -198,6 +198,8 @@ class PollingSettings:
             pending_analysis_interval_min = int(raw_pending)
             if pending_analysis_interval_min < 1:
                 pending_analysis_interval_min = master_interval_min
+            elif pending_analysis_interval_min > 10080:
+                pending_analysis_interval_min = 10080
         return cls(
             master_interval_min=master_interval_min,
             pending_analysis_interval_min=pending_analysis_interval_min,
@@ -226,6 +228,8 @@ class NotificationSettings:
     send_mode: str = "immediate"
     # 예약 발송 시각 목록 — "HH:MM" 형식 (24h), 최대 10개
     scheduled_times: List[str] = field(default_factory=list)
+    # 예약발송 Cron 한 회 실행당 최대 발송 건수 (잔여는 다음 회차)
+    scheduled_max_per_run: int = 5
     wait_between_messages_sec: int = 30
     low_confidence_threshold: float = 0.5
 
@@ -250,10 +254,21 @@ class NotificationSettings:
         else:
             scheduled_times = []
 
+        raw_cap = _row_typed(by_key.get("scheduled_max_per_run"), fernet)
+        if raw_cap in (None, ""):
+            scheduled_max_per_run = 5
+        else:
+            scheduled_max_per_run = int(raw_cap)
+            if scheduled_max_per_run < 1:
+                scheduled_max_per_run = 1
+            elif scheduled_max_per_run > 50:
+                scheduled_max_per_run = 50
+
         return cls(
             telegram_enabled=telegram_enabled,
             send_mode=str(_row_typed(by_key.get("send_mode"), fernet) or "immediate"),
             scheduled_times=scheduled_times,
+            scheduled_max_per_run=scheduled_max_per_run,
             wait_between_messages_sec=int(
                 _row_typed(by_key.get("wait_between_messages_sec"), fernet) or 30
             ),

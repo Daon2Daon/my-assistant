@@ -50,16 +50,29 @@ async def _youtube_scheduled_notify_async() -> None:
             .order_by(YoutubeVideo.published_at.asc())
         )
         result = await sess.execute(stmt)
-        video_pks = list(result.scalars().all())
+        all_pending_pks = list(result.scalars().all())
 
-    if not video_pks:
+    if not all_pending_pks:
         print("ℹ️  youtube_scheduled_notify: 미발송 영상 없음")
         return
+
+    max_per = int(notif_cfg.scheduled_max_per_run or 5)
+    if max_per < 1:
+        max_per = 1
+    elif max_per > 50:
+        max_per = 50
+
+    video_pks = all_pending_pks[:max_per]
+    remaining = len(all_pending_pks) - len(video_pks)
 
     wait_sec = int(notif_cfg.wait_between_messages_sec or 30)
     threshold = float(notif_cfg.low_confidence_threshold or 0.5)
 
-    print(f"📤 youtube_scheduled_notify: {len(video_pks)}건 발송 시작 (대기 {wait_sec}초/건)")
+    print(
+        f"📤 youtube_scheduled_notify: 이번 회차 {len(video_pks)}건 발송 "
+        f"(대기 {wait_sec}초/건, 회당 상한 {max_per}건"
+        f"{f', 잔여 미발송 약 {remaining}건은 다음 회차' if remaining > 0 else ''})"
+    )
     sent = 0
 
     for i, pk in enumerate(video_pks):
@@ -79,7 +92,7 @@ async def _youtube_scheduled_notify_async() -> None:
         if i < len(video_pks) - 1 and wait_sec > 0:
             await asyncio.sleep(wait_sec)
 
-    print(f"✅ youtube_scheduled_notify: {sent}/{len(video_pks)}건 발송 완료")
+    print(f"✅ youtube_scheduled_notify: {sent}/{len(video_pks)}건 발송 완료 (이번 회차)")
 
 
 def youtube_scheduled_notify_sync() -> None:

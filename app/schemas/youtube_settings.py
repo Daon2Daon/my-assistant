@@ -111,7 +111,9 @@ class RuntimeSettingsResponse(BaseModel):
     # polling
     master_interval_min: int
     pending_analysis_interval_min: int = Field(
-        description="DB에 pending으로 쌓인 영상을 배치 분석하는 스케줄 잡 주기(분)"
+        ge=1,
+        le=10080,
+        description="DB에 pending으로 쌓인 영상을 배치 분석하는 스케줄 잡 주기(분). 실행당 1건 처리.",
     )
     default_channel_interval_min: int
     youtube_api_key_masked: str
@@ -145,8 +147,8 @@ class PromptSettingsUpdate(BaseModel):
 
 class RuntimeSettingsUpdate(BaseModel):
     # polling
-    master_interval_min: Optional[int] = Field(None, ge=1)
-    pending_analysis_interval_min: Optional[int] = Field(None, ge=1)
+    master_interval_min: Optional[int] = Field(None, ge=1, le=10080)
+    pending_analysis_interval_min: Optional[int] = Field(None, ge=1, le=10080)
     default_channel_interval_min: Optional[int] = Field(None, ge=10)
     youtube_api_key: Optional[str] = Field(None, description="빈 문자열이면 기존 값 유지")
     youtube_daily_quota: Optional[int] = Field(None, ge=100)
@@ -171,6 +173,11 @@ class NotificationSettingsResponse(BaseModel):
     telegram_enabled: bool
     send_mode: str = Field(description="'immediate' | 'scheduled'")
     scheduled_times: List[str] = Field(description="예약 발송 시각 목록 (HH:MM 24h, 최대 10개)")
+    scheduled_max_per_run: int = Field(
+        ge=1,
+        le=50,
+        description="예약발송 스케줄 한 번 실행당 최대 발송 건수. 잔여는 다음 회차에 순차 발송.",
+    )
     wait_between_messages_sec: int = Field(description="발송 건 간 대기 시간 (초)")
     low_confidence_threshold: float = Field(description="저신뢰도 배지 임계값 (0.0 ~ 1.0)")
 
@@ -179,6 +186,7 @@ class NotificationSettingsUpdate(BaseModel):
     telegram_enabled: Optional[bool] = None
     send_mode: Optional[str] = Field(None, pattern="^(immediate|scheduled)$")
     scheduled_times: Optional[List[str]] = Field(None, max_length=10)
+    scheduled_max_per_run: Optional[int] = Field(None, ge=1, le=50)
     wait_between_messages_sec: Optional[int] = Field(None, ge=0, le=600)
     low_confidence_threshold: Optional[float] = Field(None, ge=0.0, le=1.0)
 

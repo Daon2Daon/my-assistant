@@ -102,6 +102,7 @@ class SchedulerService:
         minutes: int,
         args: Optional[tuple] = None,
         replace_existing: bool = True,
+        max_instances: Optional[int] = None,
     ):
         """
         주기 작업(Interval) 등록
@@ -113,16 +114,27 @@ class SchedulerService:
             minutes: 실행 간격 (분)
             args: 함수 인자
             replace_existing: 기존 Job 교체 여부
+            max_instances: None이면 스케줄러 기본값. 미분석 AI 잡 등 겹침 방지가 필요하면 1 등으로 지정.
         """
         trigger = IntervalTrigger(minutes=minutes)
 
-        self.scheduler.add_job(
-            func,
-            trigger=trigger,
-            id=job_id,
-            args=args or (),
-            replace_existing=replace_existing,
-        )
+        if max_instances is not None:
+            self.scheduler.add_job(
+                func,
+                trigger=trigger,
+                id=job_id,
+                args=args or (),
+                replace_existing=replace_existing,
+                max_instances=max_instances,
+            )
+        else:
+            self.scheduler.add_job(
+                func,
+                trigger=trigger,
+                id=job_id,
+                args=args or (),
+                replace_existing=replace_existing,
+            )
 
         print(f"⏱️  Interval Job 등록: {job_id} - {minutes}분마다 실행")
 
@@ -547,8 +559,9 @@ class SchedulerService:
                 func=youtube_pending_analysis_sync,
                 job_id="youtube_pending_analysis",
                 minutes=analysis_interval_min,
+                max_instances=1,
             )
-            print(f"✅ YouTube 미분석 배치 분석 Job 등록: {analysis_interval_min}분마다 실행")
+            print(f"✅ YouTube 미분석 배치 분석 Job 등록: {analysis_interval_min}분마다 실행 (실행당 1건, 동시 1인스턴스)")
         except Exception as e:
             print(f"❌ YouTube 미분석 배치 분석 Job 등록 실패: {e}")
 

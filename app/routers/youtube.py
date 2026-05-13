@@ -1295,6 +1295,7 @@ def _notification_response() -> NotificationSettingsResponse:
         telegram_enabled=n.telegram_enabled,
         send_mode=n.send_mode,
         scheduled_times=n.scheduled_times,
+        scheduled_max_per_run=n.scheduled_max_per_run,
         wait_between_messages_sec=n.wait_between_messages_sec,
         low_confidence_threshold=n.low_confidence_threshold,
     )
@@ -1318,6 +1319,7 @@ def update_notification_settings(body: NotificationSettingsUpdate, db=Depends(_s
     simple_fields = {
         "telegram_enabled": "telegram_enabled",
         "send_mode": "send_mode",
+        "scheduled_max_per_run": "scheduled_max_per_run",
         "wait_between_messages_sec": "wait_between_messages_sec",
         "low_confidence_threshold": "low_confidence_threshold",
     }

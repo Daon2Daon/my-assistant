@@ -25,6 +25,8 @@ export interface NotificationSettingsResponse {
   send_mode: SendMode
   /** 예약 시각 목록 ["HH:MM", ...] */
   scheduled_times: string[]
+  /** 예약발송 한 회차당 최대 발송 건수 (잔여는 다음 회차) */
+  scheduled_max_per_run: number
   wait_between_messages_sec: number
   low_confidence_threshold: number
 }
@@ -33,6 +35,7 @@ export interface NotificationSettingsUpdate {
   telegram_enabled?: boolean
   send_mode?: SendMode
   scheduled_times?: string[]
+  scheduled_max_per_run?: number
   wait_between_messages_sec?: number
   low_confidence_threshold?: number
 }

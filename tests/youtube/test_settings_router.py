@@ -103,6 +103,7 @@ def _make_polling_cfg(**kwargs) -> SimpleNamespace:
         window_hours=24,
         max_concurrent_channels=5,
         max_concurrent_analyses=3,
+        analysis_interval_sec=120,
     )
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
@@ -111,6 +112,9 @@ def _make_polling_cfg(**kwargs) -> SimpleNamespace:
 def _make_notif_cfg(**kwargs) -> SimpleNamespace:
     defaults = dict(
         telegram_enabled=True,
+        send_mode="immediate",
+        scheduled_times=[],
+        scheduled_max_per_run=5,
         wait_between_messages_sec=30,
         low_confidence_threshold=0.5,
     )
@@ -189,10 +193,25 @@ def test_get_runtime_settings_masks_youtube_api_key(app_client):
     body = resp.json()
     assert body["master_interval_min"] == 12
     assert body["pending_analysis_interval_min"] == 12
+    assert body["analysis_interval_sec"] == 120
     assert body["telegram_enabled"] is True
     masked = body["youtube_api_key_masked"]
     assert masked.endswith("1234")
     assert "TestKey" not in masked
+
+
+def test_get_notification_settings_includes_scheduled_max_per_run(app_client):
+    """GET /api/youtube/settings/notification — scheduled_max_per_run 포함."""
+    mock_mgr = MagicMock()
+    mock_mgr.get_notification.return_value = _make_notif_cfg(scheduled_max_per_run=5)
+
+    with patch("app.routers.youtube.get_youtube_settings_manager", return_value=mock_mgr):
+        resp = app_client.get("/api/youtube/settings/notification")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["scheduled_max_per_run"] == 5
+    assert body["send_mode"] == "immediate"
 
 
 # ──────────────────────────────────────────────────────────────────────────────

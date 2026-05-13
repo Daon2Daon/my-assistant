@@ -1,8 +1,8 @@
 """
 YouTube 모니터 서비스: 채널 폴링(수집)과 미분석 영상 배치 분석을 분리한다.
 
-- `youtube_master_poll_sync`: 채널 폴링 → 신규 영상 DB 적재만 수행.
-- `youtube_pending_analysis_sync`: DB의 `pending` 영상을 선점(claim) 후 분석 파이프라인 실행.
+- `youtube_master_poll_sync`: 채널 폴링 → 신규 영상 DB 적재만 수행. 한 번의 마스터 실행에서 YouTube API 클라이언트는 채널 간 공유한다.
+- `youtube_pending_analysis_sync`: DB의 `pending` 영상을 선점(claim) 후 분석 파이프라인 실행(스케줄 **실행당 1건**).
 
 APScheduler(BackgroundScheduler)는 별도 스레드에서 동기 함수를 실행하므로,
 각 sync 엔트리포인트가 asyncio.run()으로 비동기 로직을 감싼다.
@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Sequence  # noqa: F401
+from typing import List, Optional, Sequence
 
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.models.youtube_channel import YoutubeChannel
 from app.models.youtube_video import YoutubeVideo
@@ -292,13 +292,13 @@ async def _youtube_master_poll_async() -> None:
     print(f"📡 YouTube 마스터 폴링: {len(due_channels)}개 채널 처리 시작")
 
     poll_sem = asyncio.Semaphore(int(polling_cfg.max_concurrent_channels or 5))
+    api_client = get_youtube_api_client(polling=polling_cfg)
 
     async def _process_one(channel: YoutubeChannel) -> None:
         async with poll_sem:
             timer = JobTimer()
             with timer:
                 try:
-                    api_client = get_youtube_api_client(polling=polling_cfg)
                     async with session_factory() as sess:
                         async with sess.begin():
                             new_pks = await service.process_channel(
@@ -306,7 +306,6 @@ async def _youtube_master_poll_async() -> None:
                                 session=sess,
                                 api_client=api_client,
                             )
-                    await api_client.aclose()
 
                     await write_job_log(
                         session_factory,
@@ -338,12 +337,20 @@ async def _youtube_master_poll_async() -> None:
                         channel_pk=channel.channel_pk,
                     )
 
-    await asyncio.gather(*[_process_one(ch) for ch in due_channels], return_exceptions=True)
+    try:
+        await asyncio.gather(*[_process_one(ch) for ch in due_channels], return_exceptions=True)
+    finally:
+        await api_client.aclose()
+
     print("✅ YouTube 마스터 폴링 완료")
 
 
 async def _youtube_pending_analysis_async() -> None:
-    """스케줄 잡: DB에서 pending 영상을 선점한 뒤 배치 분석."""
+    """스케줄 잡: DB에서 pending 영상 1건만 선점한 뒤 AI 분석·DB 저장.
+
+    사용자 설정 `pending_analysis_interval_min` 주기로 호출되며,
+    한 번의 실행에서는 **한 건씩**만 처리한다(동시 다발 분석 없음).
+    """
     mgr = get_youtube_settings_manager()
     polling_cfg = mgr.get_polling()
 
@@ -357,8 +364,7 @@ async def _youtube_pending_analysis_async() -> None:
         return
 
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    max_conc = int(polling_cfg.max_concurrent_analyses or 3)
-    batch_limit = min(50, max(5, max_conc * 5))
+    batch_limit = 1
 
     async with session_factory() as sess:
         async with sess.begin():
@@ -367,9 +373,9 @@ async def _youtube_pending_analysis_async() -> None:
     if not claimed:
         return
 
-    print(f"🧠 YouTube 미분석 배치: {len(claimed)}건 분석 시작")
-    analysis_sem = asyncio.Semaphore(max_conc)
-    await _analyze_batch(claimed, analysis_sem, polling_cfg)
+    print("🧠 YouTube 미분석 배치: 1건 분석 시작")
+    analysis_sem = asyncio.Semaphore(1)
+    await _analyze_batch(claimed, analysis_sem, polling_cfg, engine=engine)
     print("✅ YouTube 미분석 배치 완료")
 
 
@@ -382,18 +388,21 @@ async def _analyze_batch(
     video_pks: List[int],
     sem: asyncio.Semaphore,
     polling_cfg: PollingSettings,
+    *,
+    engine: AsyncEngine | None = None,
 ) -> None:
     """영상 분석 배치 (스케줄러 미분석 잡 또는 기타 호출부에서 video_pk 목록 전달).
 
     analysis_interval_sec > 0 이면 영상 간 순차 처리하며 대기 시간 삽입.
     Gemini 무료 티어처럼 분당 호출 제한이 있는 경우 throttling 역할을 합니다.
     analysis_interval_sec == 0 이면 기존처럼 세마포어 기반 병렬 처리합니다.
+
+    engine이 주어지면 db_engine_manager.get_engine()를 다시 호출하지 않는다.
     """
     from app.services.youtube.analyzer import build_analysis_pipeline
-    from app.services.youtube.db_engine import db_engine_manager
 
-    engine = await db_engine_manager.get_engine()
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    eng = engine if engine is not None else await db_engine_manager.get_engine()
+    session_factory = async_sessionmaker(eng, expire_on_commit=False)
 
     from app.services.bots.youtube_bot import notify_video_callback
 
@@ -479,6 +488,7 @@ async def _youtube_gateway_health_async() -> None:
     timer = JobTimer()
 
     with timer:
+        client = None
         try:
             from app.services.youtube.llm_client import get_litellm_client
 
@@ -488,7 +498,6 @@ async def _youtube_gateway_health_async() -> None:
                 return
             client = get_litellm_client(settings=ai_cfg)
             await client.get_models(force_refresh=True)
-            await client.aclose()
 
             if session_factory:
                 await write_job_log(
@@ -508,6 +517,9 @@ async def _youtube_gateway_health_async() -> None:
                     message=str(e)[:500],
                     duration_ms=timer.elapsed_ms,
                 )
+        finally:
+            if client is not None:
+                await client.aclose()
 
 
 def youtube_gateway_health_sync() -> None:

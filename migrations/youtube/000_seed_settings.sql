@@ -28,5 +28,6 @@ INSERT OR IGNORE INTO youtube_settings (category, key, value, value_enc, value_t
 ('notification', 'telegram_enabled', 'true', NULL, 'bool', 0, 'Telegram 알림 ON/OFF'),
 ('notification', 'send_mode', 'immediate', NULL, 'string', 0, '발송 모드: immediate(즉시) | scheduled(예약)'),
 ('notification', 'scheduled_times', '[]', NULL, 'json', 0, '예약 발송 시각 목록 (JSON 배열: ["HH:MM", ...])'),
+('notification', 'scheduled_max_per_run', '5', NULL, 'int', 0, '예약발송 한 회차당 최대 발송 건수'),
 ('notification', 'wait_between_messages_sec', '30', NULL, 'int', 0, '채널 간 발송 대기(초)'),
 ('notification', 'low_confidence_threshold', '0.5', NULL, 'float', 0, '저신뢰도 배지 임계값');

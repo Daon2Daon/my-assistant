@@ -18,7 +18,7 @@ function SecretInput({ value, onChange, placeholder }: {
         placeholder={placeholder}
         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
-      <button type="button" onClick={() => setShow(!show)} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs">
+      <button type="button" onClick={() => setShow(!show)} className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600">
         {show ? '숨김' : '표시'}
       </button>
     </div>
@@ -77,6 +77,7 @@ export default function RuntimeSettings() {
         window_hours: d.window_hours,
         max_concurrent_channels: d.max_concurrent_channels,
         max_concurrent_analyses: d.max_concurrent_analyses,
+        analysis_interval_sec: d.analysis_interval_sec,
       })
     } catch (e) {
       setError((e as Error).message)
@@ -101,12 +102,13 @@ export default function RuntimeSettings() {
         window_hours: rest.window_hours,
         max_concurrent_channels: rest.max_concurrent_channels,
         max_concurrent_analyses: rest.max_concurrent_analyses,
+        analysis_interval_sec: rest.analysis_interval_sec,
       }
       if (youtube_api_key) payload.youtube_api_key = youtube_api_key
       const updated = await runtimeApi.update(payload)
       setData(updated)
       setSaved(true)
-      setSaveMessage('저장되었습니다. 마스터 폴링·미분석 배치 분석 잡 주기가 즉시 반영됩니다.')
+      setSaveMessage('저장되었습니다. 채널 모니터링·AI 배치 분석 스케줄이 즉시 반영됩니다.')
       setTimeout(() => setSaved(false), 4000)
     } catch (e) {
       alert((e as Error).message)
@@ -125,7 +127,7 @@ export default function RuntimeSettings() {
     <div className="space-y-5">
       <h1 className="text-2xl font-bold text-gray-900">모니터링 설정</h1>
       <p className="text-sm text-gray-500">
-        YouTube 모니터링 주기와 API 할당량을 설정합니다. Telegram 알림·즉시/예약 발송은{' '}
+        채널 모니터링과 AI 배치 분석을 나누어 설정합니다. Telegram 알림·즉시/예약 발송은{' '}
         <Link to="/youtube/settings/notification" className="text-blue-600 hover:underline font-medium">
           알림 발송
         </Link>
@@ -133,7 +135,6 @@ export default function RuntimeSettings() {
       </p>
 
       <form onSubmit={handleSave} className="space-y-5">
-        {/* YouTube API 설정 */}
         <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
           <h2 className="font-semibold text-gray-800 border-b pb-2">YouTube API</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -162,37 +163,30 @@ export default function RuntimeSettings() {
           </div>
         </div>
 
-        {/* 모니터링 설정 */}
+        {/* 하위: 채널 모니터링 */}
         <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
-          <h2 className="font-semibold text-gray-800 border-b pb-2">모니터링 설정</h2>
+          <div className="border-b pb-2">
+            <h2 className="font-semibold text-gray-800">모니터링 설정 — 채널 모니터링</h2>
+            <p className="text-xs text-gray-500 mt-1">
+              마스터 스케줄이 깨어날 때마다 &quot;폴링 시각이 된&quot; 채널만 조회하여 신규 영상을 DB에 등록합니다.
+            </p>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Master 모니터링 주기 (분)
+                마스터 스케줄 주기 (분)
               </label>
               <input
-                type="number" min={1} max={60}
+                type="number" min={1} max={10080}
                 value={form.master_interval_min ?? 12}
                 onChange={(e) => setF('master_interval_min', Number(e.target.value))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <p className="text-xs text-gray-400 mt-1">마스터 스케줄러가 채널 목록을 확인하는 주기</p>
+              <p className="text-xs text-gray-400 mt-1">채널 목록을 훑어 &quot;지금 조회할 채널&quot;을 고르는 주기 (최대 7일=10080분)</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                미분석 배치 분석 주기 (분)
-              </label>
-              <input
-                type="number" min={1} max={60}
-                value={form.pending_analysis_interval_min ?? 12}
-                onChange={(e) => setF('pending_analysis_interval_min', Number(e.target.value))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <p className="text-xs text-gray-400 mt-1">DB에 pending인 영상을 집어 AI 분석하는 주기 (채널 폴링과 별도)</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                기본 채널 모니터링 주기 (분)
+                기본 채널 폴링 주기 (분)
               </label>
               <input
                 type="number" min={10} max={10080}
@@ -200,7 +194,7 @@ export default function RuntimeSettings() {
                 onChange={(e) => setF('default_channel_interval_min', Number(e.target.value))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <p className="text-xs text-gray-400 mt-1">채널별 설정이 없을 때 적용되는 기본값</p>
+              <p className="text-xs text-gray-400 mt-1">채널별 값이 없을 때, 해당 채널을 다시 YouTube에서 조회하기까지의 최소 간격</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -212,25 +206,70 @@ export default function RuntimeSettings() {
                 onChange={(e) => setF('window_hours', Number(e.target.value))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <p className="text-xs text-gray-400 mt-1">이 시간 이내에 업로드된 영상만 신규로 처리</p>
+              <p className="text-xs text-gray-400 mt-1">이 시간 이내 업로드된 영상만 신규로 DB에 넣음</p>
+            </div>
+            <div className="md:col-span-2">
+              <SliderField
+                label="채널 동시성 (한 마스터 틱 안에서)"
+                value={form.max_concurrent_channels ?? 5}
+                onChange={(v) => setF('max_concurrent_channels', v)}
+                min={1} max={10}
+                format={(v) => `${v}개`}
+              />
             </div>
           </div>
+        </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-            <SliderField
-              label="채널 동시성"
-              value={form.max_concurrent_channels ?? 5}
-              onChange={(v) => setF('max_concurrent_channels', v)}
-              min={1} max={10}
-              format={(v) => `${v}개`}
-            />
-            <SliderField
-              label="분석 동시성"
-              value={form.max_concurrent_analyses ?? 3}
-              onChange={(v) => setF('max_concurrent_analyses', v)}
-              min={1} max={10}
-              format={(v) => `${v}개`}
-            />
+        {/* 하위: AI 배치 분석 */}
+        <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
+          <div className="border-b pb-2">
+            <h2 className="font-semibold text-gray-800">모니터링 설정 — AI 배치 분석</h2>
+            <p className="text-xs text-gray-500 mt-1">
+              설정한 <strong>시간 간격(분)</strong>마다 백엔드 스케줄이 실행되며, 실행마다 DB의 미분석(pending) 영상 <strong>1건</strong>만
+              선정하여 AI 분석 및 결과 DB 반영을 수행합니다. 긴 분석이 겹치지 않도록 동시 스케줄 인스턴스는 1개로 제한됩니다.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                AI 배치 분석 주기 (분)
+              </label>
+              <input
+                type="number" min={1} max={10080}
+                value={form.pending_analysis_interval_min ?? 12}
+                onChange={(e) => setF('pending_analysis_interval_min', Number(e.target.value))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                DB에만 쌓인 pending 영상을 처리하는 스케줄 주기입니다. 미설정 시 서버는 마스터 주기와 동일하게 쓸 수 있습니다(저장값 기준).
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                분석 간 추가 대기 (초)
+              </label>
+              <input
+                type="number" min={0} max={3600} step={1}
+                value={form.analysis_interval_sec ?? 120}
+                onChange={(e) => setF('analysis_interval_sec', Number(e.target.value))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                한 스케줄 실행에서 여러 건을 처리할 때 이전 호환용입니다. 현재 스케줄은 <strong>매회 1건</strong>만 처리하므로 보통은 영향이 작습니다. 0이면 대기 없음.
+              </p>
+            </div>
+            <div className="md:col-span-2">
+              <SliderField
+                label="분석 동시성 (설정값 보존)"
+                value={form.max_concurrent_analyses ?? 3}
+                onChange={(v) => setF('max_concurrent_analyses', v)}
+                min={1} max={10}
+                format={(v) => `${v}개`}
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                스케줄 기반 미분석 처리는 현재 구현에서 매 실행당 1건·세마포어 1로 고정됩니다. 이 슬라이더는 향후 확장이나 다른 코드 경로와의 호환을 위해 유지됩니다.
+              </p>
+            </div>
           </div>
         </div>
 

@@ -110,6 +110,13 @@ export interface GatewayTestAnalyzeResponse {
   latency_ms?: number
 }
 
+/** 저장 전 폼 현재값으로 테스트할 때 함께 전달하는 바디. */
+export interface AIGatewayTestRequest {
+  base_url?: string
+  api_key?: string
+  primary_model?: string
+}
+
 // ── 데이터베이스 설정 API ─────────────────────────────────────────────────────
 
 export const dbSettingsApi = {
@@ -130,10 +137,18 @@ export const aiGatewayApi = {
   get: () => request<AIGatewaySettingsResponse>('/ai_gateway'),
   update: (body: AIGatewaySettingsUpdate) =>
     request<AIGatewaySettingsResponse>('/ai_gateway', { method: 'PUT', body: JSON.stringify(body) }),
-  testConnection: () =>
-    request<ConnectionTestResponse>('/ai_gateway/test_connection', { method: 'POST' }),
-  testAnalyze: () =>
-    request<GatewayTestAnalyzeResponse>('/ai_gateway/test_analyze', { method: 'POST' }),
+  /** 폼 현재값을 넘기면 저장 없이 해당 값으로 테스트한다. */
+  testConnection: (formValues?: AIGatewayTestRequest) =>
+    request<ConnectionTestResponse>('/ai_gateway/test_connection', {
+      method: 'POST',
+      body: JSON.stringify(formValues ?? {}),
+    }),
+  /** 폼 현재값을 넘기면 저장 없이 해당 값으로 분석 테스트한다. */
+  testAnalyze: (formValues?: AIGatewayTestRequest) =>
+    request<GatewayTestAnalyzeResponse>('/ai_gateway/test_analyze', {
+      method: 'POST',
+      body: JSON.stringify(formValues ?? {}),
+    }),
   listModels: () =>
     request<{ models: ModelInfo[] }>('/ai_gateway/models'),
 }

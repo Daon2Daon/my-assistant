@@ -241,10 +241,16 @@ async def _ensure_pg_trgm_extension(engine: AsyncEngine) -> None:
     CREATE EXTENSION과 그것이 제공하는 opclass(gin_trgm_ops)를 같은 트랜잭션
     안에서 사용하면 PG가 opclass를 찾지 못한다. autocommit으로 먼저 커밋해두면
     이후 마이그레이션 트랜잭션에서 안전하게 참조할 수 있다.
+
+    SCHEMA public을 명시하는 이유:
+    엔진의 search_path에 'youtube' 스키마가 포함되어 있으나,
+    최초 실행 시에는 youtube 스키마가 아직 존재하지 않아 PostgreSQL이
+    InvalidSchemaNameError를 발생시킨다. pg_trgm은 DB 레벨 확장이므로
+    항상 public 스키마에 명시적으로 설치한다.
     """
     async with engine.connect() as conn:
         await conn.execute(
-            text("CREATE EXTENSION IF NOT EXISTS pg_trgm"),
+            text("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public"),
             execution_options={"isolation_level": "AUTOCOMMIT"},
         )
 

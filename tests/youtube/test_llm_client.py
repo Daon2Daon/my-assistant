@@ -4,8 +4,15 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 
-from app.services.youtube.llm_client import LiteLLMClient, LiteLLMError
+from app.services.youtube.llm_client import LiteLLMClient, LiteLLMError, _normalize_litellm_base_url
 from app.services.youtube.settings_manager import AIGatewaySettings
+
+
+def test_normalize_litellm_base_url_adds_scheme():
+    assert _normalize_litellm_base_url("litellm:4000") == "http://litellm:4000"
+    assert _normalize_litellm_base_url("  litellm:4000/ ") == "http://litellm:4000"
+    assert _normalize_litellm_base_url("http://litellm:4000/") == "http://litellm:4000"
+    assert _normalize_litellm_base_url("HTTPS://x:1") == "HTTPS://x:1"
 
 
 def _make_client(handler, ttl: float = 60.0) -> LiteLLMClient:
@@ -22,6 +29,22 @@ def _make_client(handler, ttl: float = 60.0) -> LiteLLMClient:
     transport = httpx.MockTransport(handler)
     http = httpx.AsyncClient(transport=transport, timeout=5.0)
     return LiteLLMClient(settings=settings, client=http, models_cache_ttl_sec=ttl)
+
+
+@pytest.mark.asyncio
+async def test_get_models_schemeless_base_url_uses_http():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url).startswith("http://litellm:4000/v1/models")
+        return httpx.Response(200, json={"data": [{"id": "m1"}]})
+
+    settings = AIGatewaySettings(base_url="litellm:4000", api_key="k")
+    transport = httpx.MockTransport(handler)
+    http = httpx.AsyncClient(transport=transport, timeout=5.0)
+    c = LiteLLMClient(settings=settings, client=http)
+    try:
+        await c.get_models(force_refresh=True)
+    finally:
+        await c.aclose()
 
 
 @pytest.mark.asyncio

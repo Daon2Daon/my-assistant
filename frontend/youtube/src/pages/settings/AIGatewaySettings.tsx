@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { aiGatewayApi } from '../../api/settings'
-import type { AIGatewaySettingsResponse, AIGatewaySettingsUpdate, ModelInfo } from '../../api/settings'
+import type { AIGatewaySettingsResponse, AIGatewaySettingsUpdate, AIGatewayTestRequest, ModelInfo } from '../../api/settings'
 import Spinner from '../../components/Spinner'
 import ErrorBanner from '../../components/ErrorBanner'
 
@@ -118,10 +118,17 @@ export default function AIGatewaySettings() {
     }
   }
 
+  /** 폼 현재값을 테스트 요청에 포함시킨다 (저장 전에도 동작). */
+  const buildTestPayload = (): AIGatewayTestRequest => ({
+    base_url: form.base_url || undefined,
+    api_key: form.api_key || undefined,
+    primary_model: form.primary_model || undefined,
+  })
+
   const handleTest = async () => {
     setTest({ status: 'running', message: '연결 테스트 중...' })
     try {
-      const r = await aiGatewayApi.testConnection()
+      const r = await aiGatewayApi.testConnection(buildTestPayload())
       setTest({ status: r.success ? 'ok' : 'fail', message: r.message, latency: r.latency_ms })
       if (r.success) {
         const ms = await aiGatewayApi.listModels()
@@ -136,7 +143,7 @@ export default function AIGatewaySettings() {
     setAnalyze({ status: 'running', message: '샘플 분석 실행 중...' })
     setShowAnalyzeModal(true)
     try {
-      const r = await aiGatewayApi.testAnalyze()
+      const r = await aiGatewayApi.testAnalyze(buildTestPayload())
       setAnalyze({ status: r.success ? 'ok' : 'fail', message: r.message, model: r.model_used })
     } catch (e) {
       setAnalyze({ status: 'fail', message: (e as Error).message })

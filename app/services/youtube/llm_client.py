@@ -23,6 +23,21 @@ class LiteLLMError(RuntimeError):
     pass
 
 
+def _normalize_litellm_base_url(raw: str) -> str:
+    """
+    litellm Base URL을 httpx가 요구하는 절대 URL 형태로 맞춘다.
+    `litellm:4000`처럼 스킴이 없으면 `litellm`이 비-http(s) 스킴으로 파싱되어
+    "Request URL is missing an 'http://' or 'https://' protocol" 오류가 난다.
+    """
+    u = (raw or "").strip()
+    if not u:
+        return ""
+    lower = u.lower()
+    if lower.startswith("http://") or lower.startswith("https://"):
+        return u.rstrip("/")
+    return f"http://{u}".rstrip("/")
+
+
 @dataclass(frozen=True)
 class ModelInfo:
     id: str
@@ -93,9 +108,11 @@ class LiteLLMClient:
         client: httpx.AsyncClient | None = None,
         models_cache_ttl_sec: float = 60.0,
     ):
-        if not settings.base_url:
+        normalized = _normalize_litellm_base_url(settings.base_url)
+        if not normalized:
             raise LiteLLMError("AI Gateway base_url이 비어 있습니다.")
         self._settings = settings
+        self._base_url = normalized
         self._client = client or httpx.AsyncClient(timeout=300.0)
         self._models_cache_ttl = models_cache_ttl_sec
         self._models_cache: ModelsResponse | None = None
@@ -106,7 +123,7 @@ class LiteLLMClient:
 
     @property
     def base_url(self) -> str:
-        return self._settings.base_url.rstrip("/")
+        return self._base_url
 
     @property
     def api_key(self) -> str:

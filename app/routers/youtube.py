@@ -45,6 +45,7 @@ from app.schemas.youtube import (
 from app.schemas.youtube_settings import (
     AIGatewaySettingsResponse,
     AIGatewaySettingsUpdate,
+    AIGatewayTestRequest,
     ConnectionTestResponse,
     DatabaseSettingsResponse,
     DatabaseSettingsUpdate,
@@ -1062,20 +1063,46 @@ def update_ai_gateway_settings(body: AIGatewaySettingsUpdate, db=Depends(_settin
     return get_ai_gateway_settings()
 
 
-@router.post("/settings/ai_gateway/test_connection", response_model=ConnectionTestResponse)
-async def test_ai_gateway_connection():
-    """AI Gateway 연결 테스트 (모델 목록 조회)."""
-    from app.services.youtube.llm_client import LiteLLMClient
+def _resolve_test_settings(req: AIGatewayTestRequest | None):
+    """
+    DB 저장 설정을 베이스로, 요청 바디에 폼값이 있으면 해당 필드만 덮어쓴다.
+    저장 전 "연결 테스트"가 폼 현재 값으로 동작하도록 하기 위한 헬퍼.
+    """
+    from dataclasses import replace as _replace
+    from app.services.youtube.settings_manager import AIGatewaySettings
 
     mgr = get_youtube_settings_manager()
-    g = mgr.get_ai_gateway()
+    g: AIGatewaySettings = mgr.get_ai_gateway()
+
+    if req is None:
+        return g
+
+    overrides: dict = {}
+    if req.base_url and req.base_url.strip():
+        overrides["base_url"] = req.base_url.strip()
+    if req.api_key and req.api_key.strip():
+        overrides["api_key"] = req.api_key.strip()
+    if req.primary_model and req.primary_model.strip():
+        overrides["primary_model"] = req.primary_model.strip()
+
+    return _replace(g, **overrides) if overrides else g
+
+
+@router.post("/settings/ai_gateway/test_connection", response_model=ConnectionTestResponse)
+async def test_ai_gateway_connection(body: AIGatewayTestRequest | None = None):
+    """
+    AI Gateway 연결 테스트 (모델 목록 조회).
+    요청 바디에 base_url / api_key 를 넘기면 저장 없이 폼값으로 테스트한다.
+    """
+    from app.services.youtube.llm_client import LiteLLMClient
+
+    g = _resolve_test_settings(body)
     if not (g.api_key or "").strip():
         return ConnectionTestResponse(
             success=False,
             message=(
                 "연결 실패: AI Gateway API 키가 비어 있습니다. "
-                "LiteLLM 마스터 키(LITELLM_MASTER_KEY) 또는 가상 키를 설정 화면에 입력한 뒤 저장하세요. "
-                "또는 컨테이너 환경 변수 YOUTUBE_BOOTSTRAP_LITELLM_API_KEY를 설정할 수 있습니다."
+                "API 키를 입력하거나, 저장 후 다시 시도하세요."
             ),
         )
     client = LiteLLMClient(settings=g)
@@ -1094,19 +1121,20 @@ async def test_ai_gateway_connection():
 
 
 @router.post("/settings/ai_gateway/test_analyze", response_model=GatewayTestAnalyzeResponse)
-async def test_ai_gateway_analyze():
-    """AI Gateway 텍스트 분석 테스트 (Route B — 샘플 프롬프트)."""
+async def test_ai_gateway_analyze(body: AIGatewayTestRequest | None = None):
+    """
+    AI Gateway 텍스트 분석 테스트 (Route B — 샘플 프롬프트).
+    요청 바디에 base_url / api_key / primary_model 을 넘기면 폼값으로 테스트한다.
+    """
     from app.services.youtube.llm_client import LiteLLMClient
 
-    mgr = get_youtube_settings_manager()
-    g = mgr.get_ai_gateway()
+    g = _resolve_test_settings(body)
     if not (g.api_key or "").strip():
         return GatewayTestAnalyzeResponse(
             success=False,
             message=(
                 "실패: AI Gateway API 키가 비어 있습니다. "
-                "LiteLLM 마스터 키 또는 가상 키를 입력 후 저장하거나 "
-                "YOUTUBE_BOOTSTRAP_LITELLM_API_KEY 환경 변수를 설정하세요."
+                "API 키를 입력하거나, 저장 후 다시 시도하세요."
             ),
         )
     client = LiteLLMClient(settings=g)

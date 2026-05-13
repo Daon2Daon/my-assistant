@@ -87,6 +87,17 @@ class ModelsResponse(BaseModel):
     models: List[ModelInfo]
 
 
+class AIGatewayTestRequest(BaseModel):
+    """
+    연결 테스트/분석 테스트 시 저장하지 않고 폼 현재 값을 직접 넘길 때 사용.
+    제공된 필드는 DB 저장값보다 우선 적용된다.
+    """
+
+    base_url: Optional[str] = None
+    api_key: Optional[str] = Field(None, description="빈 문자열이면 DB 저장값 사용")
+    primary_model: Optional[str] = None
+
+
 class GatewayTestAnalyzeResponse(BaseModel):
     success: bool
     message: str

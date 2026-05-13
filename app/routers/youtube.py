@@ -49,6 +49,8 @@ from app.schemas.youtube_settings import (
     GatewayTestAnalyzeResponse,
     ModelInfo,
     ModelsResponse,
+    NotificationSettingsResponse,
+    NotificationSettingsUpdate,
     PromptSettingsResponse,
     PromptSettingsUpdate,
     RuntimeSettingsResponse,
@@ -1236,3 +1238,66 @@ def reset_prompt_settings(db=Depends(_settings_db)):
     mgr = get_youtube_settings_manager()
     mgr.invalidate("prompts")
     return get_prompt_settings()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 설정 — 알림 발송 (notification)
+# ──────────────────────────────────────────────────────────────────────────────
+
+import json as _json
+
+
+def _notification_response() -> NotificationSettingsResponse:
+    mgr = get_youtube_settings_manager()
+    n = mgr.get_notification()
+    return NotificationSettingsResponse(
+        telegram_enabled=n.telegram_enabled,
+        send_mode=n.send_mode,
+        scheduled_times=n.scheduled_times,
+        wait_between_messages_sec=n.wait_between_messages_sec,
+        low_confidence_threshold=n.low_confidence_threshold,
+    )
+
+
+@router.get("/settings/notification", response_model=NotificationSettingsResponse)
+def get_notification_settings():
+    """알림 발송 설정 조회."""
+    return _notification_response()
+
+
+@router.put("/settings/notification", response_model=NotificationSettingsResponse)
+def update_notification_settings(body: NotificationSettingsUpdate, db=Depends(_settings_db)):
+    """알림 발송 설정 수정.
+
+    - send_mode: 'immediate'(즉시발송) | 'scheduled'(예약발송)
+    - scheduled_times: ['HH:MM', ...] 형식의 예약 시각 목록 (최대 10개)
+    """
+    data = body.model_dump(exclude_none=True)
+
+    simple_fields = {
+        "telegram_enabled": "telegram_enabled",
+        "send_mode": "send_mode",
+        "wait_between_messages_sec": "wait_between_messages_sec",
+        "low_confidence_threshold": "low_confidence_threshold",
+    }
+    for attr, key in simple_fields.items():
+        if attr in data:
+            _upsert_setting(db, "notification", key, str(data[attr]))
+
+    if "scheduled_times" in data:
+        _upsert_setting(
+            db, "notification", "scheduled_times",
+            _json.dumps(data["scheduled_times"], ensure_ascii=False),
+        )
+
+    mgr = get_youtube_settings_manager()
+    mgr.invalidate("notification")
+
+    # 예약발송 잡 재구성
+    try:
+        from app.services.scheduler import scheduler_service
+        scheduler_service.update_youtube_notify_jobs()
+    except Exception:
+        pass
+
+    return _notification_response()

@@ -291,21 +291,26 @@ youtube_bot = YoutubeBot()
 async def notify_video_callback(video_pk: int) -> None:
     """
     AnalysisPipeline의 notify_callback으로 주입할 함수.
-    PG AsyncSession은 db_engine_manager에서 직접 얻는다.
+    - 즉시발송(immediate) 모드: 분석 직후 즉시 Telegram 발송.
+    - 예약발송(scheduled) 모드: 발송하지 않고 반환 (예약잡이 일괄 처리).
     """
     from app.services.youtube.db_engine import db_engine_manager
     from app.services.youtube.settings_manager import get_youtube_settings_manager
-
-    try:
-        engine = await db_engine_manager.get_engine()
-    except Exception as e:
-        print(f"⚠️  notify_video_callback: DB 연결 실패 — skip (video_pk={video_pk}): {e}")
-        return
 
     mgr = get_youtube_settings_manager()
     notif_cfg = mgr.get_notification()
 
     if not notif_cfg.telegram_enabled:
+        return
+
+    if notif_cfg.send_mode == "scheduled":
+        print(f"ℹ️  notify_video_callback: 예약발송 모드 — video_pk={video_pk} 발송 보류")
+        return
+
+    try:
+        engine = await db_engine_manager.get_engine()
+    except Exception as e:
+        print(f"⚠️  notify_video_callback: DB 연결 실패 — skip (video_pk={video_pk}): {e}")
         return
 
     session_factory = async_sessionmaker(engine, expire_on_commit=False)

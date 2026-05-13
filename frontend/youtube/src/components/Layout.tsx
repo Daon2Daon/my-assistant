@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { to: '/youtube/settings/database', label: 'DB 설정', icon: '🗄' },
   { to: '/youtube/settings/ai-gateway', label: 'AI Gateway', icon: '🤖' },
   { to: '/youtube/settings/runtime', label: '모니터링 설정', icon: '⚙️' },
+  { to: '/youtube/settings/notification', label: '알림 발송', icon: '🔔' },
   { to: '/youtube/settings/prompts', label: '프롬프트 설정', icon: '📝' },
 ]
 
@@ -51,17 +52,12 @@ export default function Layout() {
         </div>
       )}
 
-      {/* 상단 헤더 */}
-      <header className="bg-blue-700 text-white shadow-md">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
-          <a href="/" className="text-white/70 hover:text-white text-sm mr-2">← My Assistant</a>
-          <span className="text-xl font-bold">YouTube Monitor</span>
-        </div>
-      </header>
-
       <div className="flex flex-1 max-w-7xl mx-auto w-full px-4 py-6 gap-6">
         {/* 사이드바 */}
         <aside className="w-52 shrink-0">
+          <div className="px-1 pb-3 mb-2 border-b border-gray-200">
+            <span className="text-sm font-bold text-gray-800">YouTube Monitor</span>
+          </div>
           <nav className="bg-white rounded-xl shadow-sm p-3 space-y-1 sticky top-6">
             {NAV_ITEMS.map((item) => (
               <NavLink

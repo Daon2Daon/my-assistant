@@ -4,8 +4,8 @@
 --   2. tags.video_count 컬럼 추가 + 기존 데이터 백필
 --   3. videos.description GIN(pg_trgm) 인덱스 추가
 -- ============================================================
-
-BEGIN;
+-- 트랜잭션: 앱(ensure_schema)이 engine.begin()으로 감싸므로 BEGIN/COMMIT 없음
+-- ============================================================
 
 -- ── 1. job_logs.job_type CHECK 제약 수정 ──────────────────────────────────
 
@@ -25,7 +25,8 @@ BEGIN
     IF _con IS NOT NULL THEN
         EXECUTE 'ALTER TABLE youtube.job_logs DROP CONSTRAINT ' || quote_ident(_con);
     END IF;
-END$$;
+END;
+$$;
 
 -- 앱이 실제로 사용하는 값으로 CHECK 재추가
 ALTER TABLE youtube.job_logs
@@ -50,8 +51,7 @@ SET video_count = (
 );
 
 -- ── 3. videos.description GIN 인덱스 (pg_trgm 기반 LIKE 검색용) ───────────
-
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- pg_trgm 확장은 ensure_schema() 진입 시 autocommit으로 미리 설치됨
 
 CREATE INDEX IF NOT EXISTS idx_videos_description_trgm
     ON youtube.videos
@@ -62,5 +62,3 @@ CREATE INDEX IF NOT EXISTS idx_videos_description_trgm
 INSERT INTO youtube.schema_migrations (version, applied_at, description)
 VALUES (3, NOW(), 'fix job_type check, add tags.video_count, description GIN index')
 ON CONFLICT (version) DO NOTHING;
-
-COMMIT;

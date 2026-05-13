@@ -32,6 +32,7 @@ export default function Channels() {
   const [addError, setAddError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Channel | null>(null)
   const [pollingPk, setPollingPk] = useState<number | null>(null)
+  const [savingPollPk, setSavingPollPk] = useState<number | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -104,6 +105,35 @@ export default function Channels() {
       alert((e as Error).message)
     } finally {
       setPollingPk(null)
+    }
+  }
+
+  const handlePollIntervalBlur = async (
+    ch: Channel,
+    raw: string,
+    inputEl: HTMLInputElement
+  ) => {
+    const v = Number(raw)
+    if (!Number.isFinite(v) || v < 10) {
+      alert('모니터링 주기는 10분 이상이어야 합니다.')
+      inputEl.value = String(ch.poll_interval_min)
+      return
+    }
+    if (v > 10080) {
+      alert('모니터링 주기는 최대 10080분(7일)입니다.')
+      inputEl.value = String(ch.poll_interval_min)
+      return
+    }
+    if (v === ch.poll_interval_min) return
+    setSavingPollPk(ch.channel_pk)
+    try {
+      const updated = await channelApi.update(ch.channel_pk, { poll_interval_min: v })
+      setChannels((prev) => prev.map((c) => (c.channel_pk === ch.channel_pk ? updated : c)))
+    } catch (e) {
+      alert((e as Error).message)
+      inputEl.value = String(ch.poll_interval_min)
+    } finally {
+      setSavingPollPk(null)
     }
   }
 
@@ -212,7 +242,10 @@ export default function Channels() {
                 <th className="text-center px-3 py-3 font-medium text-gray-600">활성</th>
                 <th className="text-center px-3 py-3 font-medium text-gray-600">알림</th>
                 <th className="text-left px-3 py-3 font-medium text-gray-600">카테고리</th>
-                <th className="text-right px-3 py-3 font-medium text-gray-600">모니터링(분)</th>
+                <th className="text-right px-3 py-3 font-medium text-gray-600">
+                  모니터링(분)
+                  <span className="block text-[10px] font-normal text-gray-400 normal-case">포커스 해제 시 저장</span>
+                </th>
                 <th className="text-left px-3 py-3 font-medium text-gray-600">최근 모니터링</th>
                 <th className="px-3 py-3"></th>
               </tr>
@@ -238,7 +271,19 @@ export default function Channels() {
                     <ToggleSwitch checked={ch.notify_enabled} onChange={() => handleToggleNotify(ch)} />
                   </td>
                   <td className="px-3 py-3 text-gray-500">{ch.category ?? '-'}</td>
-                  <td className="text-right px-3 py-3 text-gray-700">{ch.poll_interval_min}</td>
+                  <td className="text-right px-3 py-3">
+                    <input
+                      type="number"
+                      min={10}
+                      max={10080}
+                      disabled={savingPollPk === ch.channel_pk}
+                      key={`${ch.channel_pk}-poll-${ch.poll_interval_min}`}
+                      defaultValue={ch.poll_interval_min}
+                      onBlur={(e) => handlePollIntervalBlur(ch, e.target.value, e.target)}
+                      className="w-24 text-right border border-gray-200 rounded px-2 py-1 text-sm text-gray-800 disabled:opacity-50"
+                      title="값을 바꾼 뒤 다른 곳을 클릭하면 저장됩니다"
+                    />
+                  </td>
                   <td className="px-3 py-3 text-gray-400 text-xs">
                     {ch.last_checked_at ? dayjs(ch.last_checked_at).format('MM/DD HH:mm') : '-'}
                   </td>

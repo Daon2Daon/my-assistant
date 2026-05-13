@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
-from typing import Any, Callable, Optional
+import json as _json
+from dataclasses import dataclass, field
+from typing import Any, Callable, List, Optional
 
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy.orm import Session
@@ -194,6 +195,10 @@ class PollingSettings:
 @dataclass
 class NotificationSettings:
     telegram_enabled: bool = True
+    # 발송 모드: "immediate" (분석 직후 즉시) | "scheduled" (등록된 일정에 일괄)
+    send_mode: str = "immediate"
+    # 예약 발송 시각 목록 — "HH:MM" 형식 (24h), 최대 10개
+    scheduled_times: List[str] = field(default_factory=list)
     wait_between_messages_sec: int = 30
     low_confidence_threshold: float = 0.5
 
@@ -205,8 +210,23 @@ class NotificationSettings:
             telegram_enabled = True
         else:
             telegram_enabled = bool(_row_typed(te_row, fernet))
+
+        raw_times = _row_typed(by_key.get("scheduled_times"), fernet)
+        if isinstance(raw_times, list):
+            scheduled_times = [str(t) for t in raw_times]
+        elif isinstance(raw_times, str):
+            try:
+                parsed = _json.loads(raw_times)
+                scheduled_times = [str(t) for t in parsed] if isinstance(parsed, list) else []
+            except Exception:
+                scheduled_times = []
+        else:
+            scheduled_times = []
+
         return cls(
             telegram_enabled=telegram_enabled,
+            send_mode=str(_row_typed(by_key.get("send_mode"), fernet) or "immediate"),
+            scheduled_times=scheduled_times,
             wait_between_messages_sec=int(
                 _row_typed(by_key.get("wait_between_messages_sec"), fernet) or 30
             ),

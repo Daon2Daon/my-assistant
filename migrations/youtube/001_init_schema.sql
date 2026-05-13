@@ -77,40 +77,39 @@ DROP TRIGGER IF EXISTS trg_videos_updated ON youtube.videos;
 CREATE TRIGGER trg_videos_updated BEFORE UPDATE ON youtube.videos
     FOR EACH ROW EXECUTE FUNCTION youtube.set_updated_at();
 
--- 3.2.3 video_details (상세 분석) ---------------------------------
-CREATE TABLE IF NOT EXISTS youtube.video_details (
-    detail_pk         BIGSERIAL   PRIMARY KEY,
-    video_pk          BIGINT      NOT NULL UNIQUE REFERENCES youtube.videos(video_pk) ON DELETE CASCADE,
+-- 3.2.3 video_analysis (통합 분석 결과: 구 video_details + video_summaries) --
+CREATE TABLE IF NOT EXISTS youtube.video_analysis (
+    video_pk          BIGINT           PRIMARY KEY
+                                           REFERENCES youtube.videos(video_pk) ON DELETE CASCADE,
+
+    -- 요약 (구 video_summaries)
+    one_line          TEXT             NOT NULL DEFAULT '',
+    headline          TEXT,
+    short_summary_md  TEXT             NOT NULL DEFAULT '',
+    bullet_points     JSONB,
+
+    -- 상세 분석 (구 video_details)
+    full_analysis_md  TEXT,
     full_transcript   TEXT,
-    full_analysis_md  TEXT        NOT NULL,
     key_points        JSONB,
     insights          JSONB,
     entities          JSONB,
-    sentiment         TEXT        CHECK (sentiment IN ('bullish','bearish','neutral','mixed')),
+    sentiment         TEXT,
     confidence_score  DOUBLE PRECISION,
+
+    -- 모델/비용 메타
     model_name        TEXT,
     gateway_url       TEXT,
     prompt_version    TEXT,
     token_input       INTEGER,
     token_output      INTEGER,
     cost_usd          DOUBLE PRECISION,
-    analyzed_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_details_video ON youtube.video_details(video_pk);
 
--- 3.2.4 video_summaries (알림용 요약) -----------------------------
-CREATE TABLE IF NOT EXISTS youtube.video_summaries (
-    summary_pk         BIGSERIAL   PRIMARY KEY,
-    video_pk           BIGINT      NOT NULL UNIQUE REFERENCES youtube.videos(video_pk) ON DELETE CASCADE,
-    one_line           TEXT        NOT NULL,
-    short_summary_md   TEXT        NOT NULL,
-    headline           TEXT,
-    bullet_points      JSONB,
-    cta_text           TEXT,
-    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    analyzed_at       TIMESTAMPTZ      NOT NULL DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS idx_video_analysis_video ON youtube.video_analysis(video_pk);
 
--- 3.2.5 tags / video_tags (M:N) -----------------------------------
+-- 3.2.4 tags / video_tags (M:N) -----------------------------------
 CREATE TABLE IF NOT EXISTS youtube.tags (
     tag_pk     BIGSERIAL   PRIMARY KEY,
     name       TEXT        NOT NULL UNIQUE,

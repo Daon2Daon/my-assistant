@@ -548,6 +548,9 @@ class SchedulerService:
         except Exception as e:
             print(f"❌ YouTube Gateway 헬스체크 Job 등록 실패: {e}")
 
+        # 예약발송 잡도 함께 초기화
+        self.setup_youtube_notify_jobs()
+
     def update_youtube_master_poll_job(self):
         """
         polling.master_interval_min 변경 시 마스터 폴링 잡 재등록.
@@ -557,6 +560,60 @@ class SchedulerService:
             self.setup_youtube_jobs()
         except Exception as e:
             print(f"❌ YouTube 마스터 폴링 Job 업데이트 실패: {e}")
+
+    def setup_youtube_notify_jobs(self):
+        """
+        notification.scheduled_times 설정에 따라 예약발송 CronTrigger 잡을 등록한다.
+        - send_mode가 'scheduled'가 아니거나 scheduled_times가 비어 있으면 등록하지 않음.
+        - 잡 ID 형식: youtube_notify_HHMM (예: youtube_notify_1400)
+        """
+        import re
+        from app.services.youtube.notify_service import youtube_scheduled_notify_sync
+
+        try:
+            from app.services.youtube.settings_manager import get_youtube_settings_manager
+            mgr = get_youtube_settings_manager()
+            notif_cfg = mgr.get_notification()
+        except Exception as e:
+            print(f"⚠️ YouTube 예약발송 설정 로드 실패: {e}")
+            return
+
+        if notif_cfg.send_mode != "scheduled" or not notif_cfg.scheduled_times:
+            return
+
+        pattern = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
+        for time_str in notif_cfg.scheduled_times:
+            m = pattern.match(time_str)
+            if not m:
+                print(f"⚠️ YouTube 예약발송: 잘못된 시각 형식 '{time_str}' — skip")
+                continue
+            hour, minute = int(m.group(1)), int(m.group(2))
+            job_id = f"youtube_notify_{hour:02d}{minute:02d}"
+            try:
+                self.add_cron_job(
+                    func=youtube_scheduled_notify_sync,
+                    job_id=job_id,
+                    hour=hour,
+                    minute=minute,
+                )
+                print(f"✅ YouTube 예약발송 Job 등록: {job_id} ({hour:02d}:{minute:02d})")
+            except Exception as e:
+                print(f"❌ YouTube 예약발송 Job 등록 실패 ({time_str}): {e}")
+
+    def update_youtube_notify_jobs(self):
+        """
+        notification 설정 변경 시 기존 예약발송 잡을 전부 제거하고 재등록.
+        """
+        try:
+            existing_ids = [
+                job.id for job in self.scheduler.get_jobs()
+                if job.id.startswith("youtube_notify_")
+            ]
+            for job_id in existing_ids:
+                self.remove_job(job_id)
+            self.setup_youtube_notify_jobs()
+        except Exception as e:
+            print(f"❌ YouTube 예약발송 Job 갱신 실패: {e}")
 
 
 # 싱글톤 인스턴스

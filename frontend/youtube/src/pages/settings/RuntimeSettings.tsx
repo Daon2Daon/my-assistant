@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { runtimeApi } from '../../api/settings'
 import type { RuntimeSettingsResponse, RuntimeSettingsUpdate } from '../../api/settings'
 import Spinner from '../../components/Spinner'
@@ -21,21 +22,6 @@ function SecretInput({ value, onChange, placeholder }: {
         {show ? '숨김' : '표시'}
       </button>
     </div>
-  )
-}
-
-function ToggleSwitch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
-  return (
-    <label className="flex items-center gap-3 cursor-pointer">
-      <button
-        type="button"
-        onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${checked ? 'bg-blue-600' : 'bg-gray-300'}`}
-      >
-        <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
-      </button>
-      <span className="text-sm text-gray-700">{label}</span>
-    </label>
   )
 }
 
@@ -90,9 +76,6 @@ export default function RuntimeSettings() {
         window_hours: d.window_hours,
         max_concurrent_channels: d.max_concurrent_channels,
         max_concurrent_analyses: d.max_concurrent_analyses,
-        telegram_enabled: d.telegram_enabled,
-        wait_between_messages_sec: d.wait_between_messages_sec,
-        low_confidence_threshold: d.low_confidence_threshold,
       })
     } catch (e) {
       setError((e as Error).message)
@@ -109,7 +92,14 @@ export default function RuntimeSettings() {
     setSaved(false)
     try {
       const { youtube_api_key, ...rest } = form
-      const payload: RuntimeSettingsUpdate = { ...rest }
+      const payload: RuntimeSettingsUpdate = {
+        master_interval_min: rest.master_interval_min,
+        default_channel_interval_min: rest.default_channel_interval_min,
+        youtube_daily_quota: rest.youtube_daily_quota,
+        window_hours: rest.window_hours,
+        max_concurrent_channels: rest.max_concurrent_channels,
+        max_concurrent_analyses: rest.max_concurrent_analyses,
+      }
       if (youtube_api_key) payload.youtube_api_key = youtube_api_key
       const updated = await runtimeApi.update(payload)
       setData(updated)
@@ -131,8 +121,14 @@ export default function RuntimeSettings() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl font-bold text-gray-900">모니터링 / 알림 설정</h1>
-      <p className="text-sm text-gray-500">YouTube 모니터링 주기, API 할당량, Telegram 알림 옵션을 설정합니다.</p>
+      <h1 className="text-2xl font-bold text-gray-900">모니터링 설정</h1>
+      <p className="text-sm text-gray-500">
+        YouTube 모니터링 주기와 API 할당량을 설정합니다. Telegram 알림·즉시/예약 발송은{' '}
+        <Link to="/youtube/settings/notification" className="text-blue-600 hover:underline font-medium">
+          알림 발송
+        </Link>
+        메뉴에서 설정하세요.
+      </p>
 
       <form onSubmit={handleSave} className="space-y-5">
         {/* YouTube API 설정 */}
@@ -222,42 +218,6 @@ export default function RuntimeSettings() {
               format={(v) => `${v}개`}
             />
           </div>
-        </div>
-
-        {/* 알림 설정 */}
-        <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
-          <h2 className="font-semibold text-gray-800 border-b pb-2">Telegram 알림 설정</h2>
-
-          <ToggleSwitch
-            checked={form.telegram_enabled ?? true}
-            onChange={(v) => setF('telegram_enabled', v)}
-            label="Telegram 알림 활성화"
-          />
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                채널 간 대기 시간 (초)
-              </label>
-              <input
-                type="number" min={0} max={120}
-                value={form.wait_between_messages_sec ?? 30}
-                onChange={(e) => setF('wait_between_messages_sec', Number(e.target.value))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <p className="text-xs text-gray-400 mt-1">Telegram 스팸 방지용 배치 발송 간격</p>
-            </div>
-            <SliderField
-              label="저신뢰도 임계값"
-              value={form.low_confidence_threshold ?? 0.5}
-              onChange={(v) => setF('low_confidence_threshold', v)}
-              min={0} max={1} step={0.05}
-              format={(v) => `${Math.round(v * 100)}%`}
-            />
-          </div>
-          <p className="text-xs text-gray-400">
-            신뢰도가 임계값 미만인 분석 결과에는 알림 메시지에 ⚠️ 저신뢰도 배지가 표시됩니다.
-          </p>
         </div>
 
         {saved && (

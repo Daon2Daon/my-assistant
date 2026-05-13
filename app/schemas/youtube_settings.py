@@ -7,9 +7,10 @@ YouTube 모듈 설정 Pydantic 스키마.
 
 from __future__ import annotations
 
+import re
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ── 데이터베이스 설정 ──────────────────────────────────────────────────────────
@@ -144,3 +145,34 @@ class RuntimeSettingsUpdate(BaseModel):
     telegram_enabled: Optional[bool] = None
     wait_between_messages_sec: Optional[int] = Field(None, ge=0)
     low_confidence_threshold: Optional[float] = Field(None, ge=0.0, le=1.0)
+
+
+_TIME_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
+
+
+# ── 알림 발송 설정 ─────────────────────────────────────────────────────────────
+
+class NotificationSettingsResponse(BaseModel):
+    telegram_enabled: bool
+    send_mode: str = Field(description="'immediate' | 'scheduled'")
+    scheduled_times: List[str] = Field(description="예약 발송 시각 목록 (HH:MM 24h, 최대 10개)")
+    wait_between_messages_sec: int = Field(description="발송 건 간 대기 시간 (초)")
+    low_confidence_threshold: float = Field(description="저신뢰도 배지 임계값 (0.0 ~ 1.0)")
+
+
+class NotificationSettingsUpdate(BaseModel):
+    telegram_enabled: Optional[bool] = None
+    send_mode: Optional[str] = Field(None, pattern="^(immediate|scheduled)$")
+    scheduled_times: Optional[List[str]] = Field(None, max_length=10)
+    wait_between_messages_sec: Optional[int] = Field(None, ge=0, le=600)
+    low_confidence_threshold: Optional[float] = Field(None, ge=0.0, le=1.0)
+
+    @field_validator("scheduled_times")
+    @classmethod
+    def validate_times(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is None:
+            return v
+        for t in v:
+            if not _TIME_RE.match(t):
+                raise ValueError(f"시각 형식이 올바르지 않습니다 (HH:MM): {t!r}")
+        return v

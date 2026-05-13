@@ -3,7 +3,7 @@ YouTube 모니터 모듈: PostgreSQL 동적 Async 엔진 매니저.
 
 - 접속 정보는 SQLite `youtube_settings`에서 런타임 로딩 (SettingsManager)
 - 설정이 바뀌면 다음 요청부터 새 엔진을 사용하도록 재생성
-- 최초 연결 성공 시 `migrations/youtube/001_init_schema.sql` 를 멱등 적용
+- 최초 연결 성공 시 `migrations/youtube/NNN_*.sql` (000 제외)을 버전 순으로 멱등 적용
 """
 
 from __future__ import annotations
@@ -36,6 +36,60 @@ class EngineHealth:
 def _migrations_dir() -> Path:
     # app/services/youtube/db_engine.py -> app/services/youtube -> app/services -> app -> repo root
     return Path(__file__).resolve().parents[3] / "migrations" / "youtube"
+
+
+def _numbered_postgres_migrations(mig_dir: Path) -> list[tuple[int, Path]]:
+    """
+    `001_*.sql`, `002_*.sql` … 만 순서대로 반환한다.
+    `000_*.sql`(SQLite 시드 등)은 PG 스키마 적용 대상에서 제외한다.
+    """
+    out: list[tuple[int, Path]] = []
+    for path in sorted(mig_dir.glob("[0-9][0-9][0-9]_*.sql")):
+        prefix = path.name[:3]
+        if not prefix.isdigit():
+            continue
+        ver = int(prefix)
+        if ver == 0:
+            continue
+        out.append((ver, path))
+    out.sort(key=lambda x: x[0])
+    return out
+
+
+def _is_transaction_boundary_statement(stmt: str) -> bool:
+    """SQLAlchemy `begin()` 트랜잭션 안에서 파일에 있는 BEGIN/COMMIT은 건너뛴다."""
+    raw = stmt.strip()
+    if not raw:
+        return False
+    head = raw.split(None, 1)[0].upper().rstrip(";")
+    return head in ("BEGIN", "COMMIT", "ROLLBACK")
+
+
+def _is_comment_only_sql(stmt: str) -> bool:
+    """세미콜론 분리 결과가 주석만 있으면 asyncpg에 보내지 않는다."""
+    for raw_line in stmt.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("--"):
+            continue
+        return False
+    return True
+
+
+async def _execute_script_statements(conn: Any, sql: str) -> None:
+    for piece in _split_postgres_sql_script(sql):
+        if not piece.strip() or _is_transaction_boundary_statement(piece):
+            continue
+        if _is_comment_only_sql(piece):
+            continue
+        await conn.execute(text(piece))
+
+
+async def _fetch_applied_migration_versions(conn: Any) -> set[int]:
+    result = await conn.execute(text("SELECT version FROM youtube.schema_migrations"))
+    rows = result.fetchall()
+    return {int(row[0]) for row in rows}
 
 
 def _dsn_signature(cfg: DatabaseSettings) -> str:
@@ -180,28 +234,46 @@ def _is_duplicate_schema_race(exc: Exception) -> bool:
     )
 
 
-async def ensure_schema(engine: AsyncEngine) -> None:
-    """PG 연결 성공 시 schema/테이블을 멱등 생성."""
-    mig_dir = _migrations_dir()
-    init_path = mig_dir / "001_init_schema.sql"
-    if not init_path.is_file():
-        raise FileNotFoundError(f"마이그레이션 파일을 찾을 수 없습니다: {init_path}")
+async def _ensure_pg_trgm_extension(engine: AsyncEngine) -> None:
+    """
+    pg_trgm 확장을 autocommit 모드로 미리 설치한다.
 
-    sql = init_path.read_text(encoding="utf-8")
+    CREATE EXTENSION과 그것이 제공하는 opclass(gin_trgm_ops)를 같은 트랜잭션
+    안에서 사용하면 PG가 opclass를 찾지 못한다. autocommit으로 먼저 커밋해두면
+    이후 마이그레이션 트랜잭션에서 안전하게 참조할 수 있다.
+    """
+    async with engine.connect() as conn:
+        await conn.execute(
+            text("CREATE EXTENSION IF NOT EXISTS pg_trgm"),
+            execution_options={"isolation_level": "AUTOCOMMIT"},
+        )
+
+
+async def ensure_schema(engine: AsyncEngine) -> None:
+    """PG 연결 성공 시 schema/테이블을 멱등 생성하고, 미적용 번호 마이그레이션을 순서대로 적용한다."""
+    await _ensure_pg_trgm_extension(engine)
+
+    mig_dir = _migrations_dir()
+    numbered = _numbered_postgres_migrations(mig_dir)
+    if not numbered or numbered[0][0] != 1:
+        raise FileNotFoundError(
+            f"초기 스키마 마이그레이션(001_*.sql)을 찾을 수 없습니다: {mig_dir}"
+        )
+
+    init_path = numbered[0][1]
+    init_sql = init_path.read_text(encoding="utf-8")
     async with engine.begin() as conn:
-        for stmt in _split_postgres_sql_script(sql):
+        for stmt in _split_postgres_sql_script(init_sql):
             try:
                 await conn.execute(text(stmt))
             except IntegrityError as exc:
                 normalized = stmt.strip().lower()
-                # PostgreSQL 카탈로그 race: 이미 스키마가 만들어졌다면 다음 문으로 진행
                 if (
                     "create schema if not exists youtube" in normalized
                     and _is_duplicate_schema_race(exc)
                 ):
                     continue
                 raise
-        # 버전 기록: 1 (멱등)
         await conn.execute(
             text(
                 """
@@ -211,6 +283,18 @@ async def ensure_schema(engine: AsyncEngine) -> None:
                 """
             )
         )
+
+    async with engine.connect() as conn:
+        applied = await _fetch_applied_migration_versions(conn)
+
+    for ver, path in numbered:
+        if ver <= 1 or ver in applied:
+            continue
+        body = path.read_text(encoding="utf-8")
+        async with engine.begin() as conn:
+            await _execute_script_statements(conn, body)
+        async with engine.connect() as conn:
+            applied = await _fetch_applied_migration_versions(conn)
 
 
 class DBEngineManager:
@@ -238,8 +322,10 @@ class DBEngineManager:
             await self._dispose_existing()
             dsn = _build_async_dsn(cfg)
             ssl_arg = _asyncpg_ssl(cfg.sslmode)
+            # 앱 테이블은 스키마(기본 youtube) 우선, pg_trgm 등 확장 객체는 public에 있으므로 public 포함
+            _schema = (cfg.schema or "youtube").strip()
             connect_args: dict[str, Any] = {
-                "server_settings": {"search_path": cfg.schema or "youtube"},
+                "server_settings": {"search_path": f"{_schema}, public"},
                 "ssl": ssl_arg if ssl_arg is not None else False,
             }
 

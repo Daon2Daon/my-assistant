@@ -13,12 +13,15 @@ YouTube 모니터 REST API 라우터.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+logger = logging.getLogger(__name__)
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -965,21 +968,15 @@ def update_database_settings(body: DatabaseSettingsUpdate, db=Depends(_settings_
 
 @router.post("/settings/database/test_connection", response_model=ConnectionTestResponse)
 async def test_database_connection():
-    """PostgreSQL 연결 테스트."""
-    from app.services.youtube.db_engine import db_engine_manager, DBNotConfiguredError
+    """PostgreSQL 연결 테스트 (스키마 생성 없이 접속만 확인)."""
+    from app.services.youtube.db_engine import db_engine_manager
 
-    try:
-        t0 = time.monotonic()
-        engine = await db_engine_manager.get_engine()
-        async with engine.connect() as conn:
-            from sqlalchemy import text
-            await conn.execute(text("SELECT 1"))
-        latency_ms = int((time.monotonic() - t0) * 1000)
-        return ConnectionTestResponse(success=True, message="연결 성공", latency_ms=latency_ms)
-    except DBNotConfiguredError as exc:
-        return ConnectionTestResponse(success=False, message=f"미설정: {exc}")
-    except Exception as exc:
-        return ConnectionTestResponse(success=False, message=f"연결 실패: {exc}")
+    health = await db_engine_manager.test_connection_only()
+    return ConnectionTestResponse(
+        success=health.ok,
+        message=health.message or ("연결 성공" if health.ok else "연결 실패"),
+        latency_ms=int(health.latency_ms) if health.latency_ms else None,
+    )
 
 
 @router.post("/settings/database/apply_schema", response_model=SchemaApplyResponse)
@@ -1072,6 +1069,15 @@ async def test_ai_gateway_connection():
 
     mgr = get_youtube_settings_manager()
     g = mgr.get_ai_gateway()
+    if not (g.api_key or "").strip():
+        return ConnectionTestResponse(
+            success=False,
+            message=(
+                "연결 실패: AI Gateway API 키가 비어 있습니다. "
+                "LiteLLM 마스터 키(LITELLM_MASTER_KEY) 또는 가상 키를 설정 화면에 입력한 뒤 저장하세요. "
+                "또는 컨테이너 환경 변수 YOUTUBE_BOOTSTRAP_LITELLM_API_KEY를 설정할 수 있습니다."
+            ),
+        )
     client = LiteLLMClient(settings=g)
     try:
         t0 = time.monotonic()
@@ -1083,6 +1089,7 @@ async def test_ai_gateway_connection():
             latency_ms=latency_ms,
         )
     except Exception as exc:
+        logger.warning("AI Gateway 연결 테스트 실패: %s", exc)
         return ConnectionTestResponse(success=False, message=f"연결 실패: {exc}")
 
 
@@ -1093,6 +1100,15 @@ async def test_ai_gateway_analyze():
 
     mgr = get_youtube_settings_manager()
     g = mgr.get_ai_gateway()
+    if not (g.api_key or "").strip():
+        return GatewayTestAnalyzeResponse(
+            success=False,
+            message=(
+                "실패: AI Gateway API 키가 비어 있습니다. "
+                "LiteLLM 마스터 키 또는 가상 키를 입력 후 저장하거나 "
+                "YOUTUBE_BOOTSTRAP_LITELLM_API_KEY 환경 변수를 설정하세요."
+            ),
+        )
     client = LiteLLMClient(settings=g)
     try:
         t0 = time.monotonic()

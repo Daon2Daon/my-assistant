@@ -347,6 +347,42 @@ class DBEngineManager:
         # settings cache는 다음 호출에서 다시 읽도록 무효화
         get_youtube_settings_manager().invalidate("database")
 
+    async def test_connection_only(self) -> EngineHealth:
+        """
+        순수 연결 확인 전용. 스키마 생성을 실행하지 않는다.
+        UI의 '연결 테스트' 버튼에 사용한다.
+        """
+        import time
+
+        mgr = get_youtube_settings_manager()
+        cfg = mgr.get_database()
+        if not cfg.is_configured:
+            return EngineHealth(ok=False, message="DB 설정이 없습니다. 호스트·사용자·DB 이름을 먼저 입력하세요.")
+        try:
+            dsn = _build_async_dsn(cfg)
+            ssl_arg = _asyncpg_ssl(cfg.sslmode)
+            connect_args: dict[str, Any] = {
+                "server_settings": {"search_path": f"{cfg.schema or 'youtube'}, public"},
+                "ssl": ssl_arg if ssl_arg is not None else False,
+            }
+            tmp_engine = create_async_engine(
+                dsn,
+                pool_size=1,
+                max_overflow=0,
+                pool_pre_ping=False,
+                connect_args=connect_args,
+            )
+            try:
+                start = time.perf_counter()
+                async with tmp_engine.connect() as conn:
+                    await conn.execute(text("SELECT 1"))
+                elapsed = (time.perf_counter() - start) * 1000.0
+                return EngineHealth(ok=True, latency_ms=elapsed, message="연결 성공")
+            finally:
+                await tmp_engine.dispose()
+        except Exception as e:
+            return EngineHealth(ok=False, message=str(e))
+
     async def health_check(self) -> EngineHealth:
         import time
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import time
 import json as _json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, List, Optional
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -287,7 +287,12 @@ class SettingsManager:
     def get_ai_gateway(self) -> AIGatewaySettings:
         def load() -> AIGatewaySettings:
             rows = self._fetch_category("ai_gateway")
-            return AIGatewaySettings.from_rows(rows, self._fernet)
+            cfg = AIGatewaySettings.from_rows(rows, self._fernet)
+            # DB에 api_key가 없을 때만: 컨테이너 .env의 BOOTSTRAP 값으로 보완(시드 이후에 env만 채운 경우 등)
+            env_key = (app_settings.YOUTUBE_BOOTSTRAP_LITELLM_API_KEY or "").strip()
+            if env_key and not (cfg.api_key or "").strip():
+                cfg = replace(cfg, api_key=env_key)
+            return cfg
 
         return self._get_cached("ai_gateway", load)
 

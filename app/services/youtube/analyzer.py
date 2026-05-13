@@ -29,7 +29,10 @@ from app.services.youtube.tag_extractor import extract_and_save_tags
 
 # ---------- 프롬프트 v2.0 ----------
 
-ANALYSIS_PROMPT_V1: str = """다음 url의 유튜브 영상의 내용을 직접 보지 않아도 이해할 수 있도록 한국어로 상세히 정리해줘.
+ANALYSIS_PROMPT_V1: str = """다음 유튜브 영상의 내용을 직접 보지 않아도 이해할 수 있도록 한국어로 상세히 정리해줘.
+
+## 현재 날짜
+오늘은 {today}입니다. 업로드 일시가 {published_at_kst}인 이 영상은 현재 시점에서 이미 게시된 영상이므로 반드시 실제 내용을 기반으로 분석할 것. 학습 데이터 컷오프 이후에 업로드된 영상이더라도 영상 콘텐츠에 직접 접근하여 분석할 수 있음.
 
 ## 영상 정보
 - 채널명: {channel_name}
@@ -67,6 +70,9 @@ ANALYSIS_PROMPT_V1: str = """다음 url의 유튜브 영상의 내용을 직접 
 }}"""
 
 FALLBACK_PROMPT_V1: str = """다음 유튜브 영상의 내용을 직접 보지 않아도 이해할 수 있도록 한국어로 상세히 정리해줘.
+
+## 현재 날짜
+오늘은 {today}입니다. 업로드 일시가 {published_at_kst}인 이 영상은 현재 시점에서 이미 게시된 영상이므로 반드시 실제 내용을 기반으로 분석할 것. 학습 데이터 컷오프 이후에 업로드된 영상이더라도 URL을 통해 직접 접근하여 분석할 수 있음.
 
 ## 영상 정보
 - 채널명: {channel_name}
@@ -205,10 +211,14 @@ class AnalysisPipeline:
         prompt_cfg = mgr.get_prompts()
 
         def _render(template: str) -> str:
+            from zoneinfo import ZoneInfo
+
+            today_kst = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y년 %m월 %d일")
             return template.format(
                 channel_name=channel_name,
                 published_at_kst=pub_kst,
                 video_url=video_url,
+                today=today_kst,
             )
 
         if custom_prompt:

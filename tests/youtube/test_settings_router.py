@@ -96,6 +96,7 @@ def _make_ai_cfg(**kwargs) -> SimpleNamespace:
 def _make_polling_cfg(**kwargs) -> SimpleNamespace:
     defaults = dict(
         master_interval_min=12,
+        pending_analysis_interval_min=12,
         default_channel_interval_min=720,
         youtube_api_key="AIzaTestKey1234",
         youtube_daily_quota=10000,
@@ -187,6 +188,7 @@ def test_get_runtime_settings_masks_youtube_api_key(app_client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["master_interval_min"] == 12
+    assert body["pending_analysis_interval_min"] == 12
     assert body["telegram_enabled"] is True
     masked = body["youtube_api_key_masked"]
     assert masked.endswith("1234")

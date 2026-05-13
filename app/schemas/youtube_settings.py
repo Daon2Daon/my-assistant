@@ -110,6 +110,9 @@ class GatewayTestAnalyzeResponse(BaseModel):
 class RuntimeSettingsResponse(BaseModel):
     # polling
     master_interval_min: int
+    pending_analysis_interval_min: int = Field(
+        description="DB에 pending으로 쌓인 영상을 배치 분석하는 스케줄 잡 주기(분)"
+    )
     default_channel_interval_min: int
     youtube_api_key_masked: str
     youtube_daily_quota: int
@@ -143,6 +146,7 @@ class PromptSettingsUpdate(BaseModel):
 class RuntimeSettingsUpdate(BaseModel):
     # polling
     master_interval_min: Optional[int] = Field(None, ge=1)
+    pending_analysis_interval_min: Optional[int] = Field(None, ge=1)
     default_channel_interval_min: Optional[int] = Field(None, ge=10)
     youtube_api_key: Optional[str] = Field(None, description="빈 문자열이면 기존 값 유지")
     youtube_daily_quota: Optional[int] = Field(None, ge=100)

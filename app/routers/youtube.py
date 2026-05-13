@@ -346,7 +346,7 @@ async def trigger_channel_poll(
 async def _trigger_channel_poll(channel_pk: int) -> None:
     """백그라운드에서 단일 채널 모니터링 실행 (첫 실행 시 24시간 window 적용)."""
     from app.services.youtube.db_engine import db_engine_manager, DBNotConfiguredError
-    from app.services.youtube.monitor_service import MonitorService, _analyze_batch
+    from app.services.youtube.monitor_service import MonitorService
     from app.services.youtube.settings_manager import get_youtube_settings_manager
     from app.services.youtube.youtube_api import get_youtube_api_client
     from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -371,10 +371,6 @@ async def _trigger_channel_poll(channel_pk: int) -> None:
                 )
 
         await api_client.aclose()
-
-        if new_pks:
-            analysis_sem = asyncio.Semaphore(int(polling_cfg.max_concurrent_analyses or 3))
-            await _analyze_batch(new_pks, analysis_sem, polling_cfg)
 
     except DBNotConfiguredError:
         print(f"⚠️  즉시 모니터링 SKIP — PostgreSQL 미설정 (channel_pk={channel_pk})")
@@ -726,7 +722,7 @@ async def instant_analyze(
         view_count=vm.view_count,
         like_count=vm.like_count,
         source_channel_name=vm.channel_title or INSTANT_CHANNEL_NAME,
-        analysis_status="pending",
+        analysis_status="processing",
         retry_count=0,
     )
     session.add(new_video)
@@ -745,7 +741,7 @@ async def instant_analyze(
         video_id=vm.video_id,
         title=vm.title,
         source_channel_name=source_channel_name,
-        analysis_status="pending",
+        analysis_status="processing",
         existing=False,
         message=f"'{vm.title}' 분석을 시작합니다.",
     )
@@ -757,10 +753,10 @@ async def instant_analyze(
     response_model=PollTriggerResponse,
 )
 async def reanalyze_failed_videos(
-    limit: int = Query(20, ge=1, le=100, description="한 번에 재분석할 최대 영상 수"),
+    limit: int = Query(20, ge=1, le=100, description="한 번에 pending으로 되돌릴 최대 영상 수"),
     session: AsyncSession = Depends(get_pg_session),
 ):
-    """failed 상태 영상 일괄 재분석 트리거."""
+    """failed 상태 영상을 pending으로 되돌린 뒤, 미분석 배치 스케줄 잡이 분석하도록 맡긴다."""
     result = await session.execute(
         select(YoutubeVideo)
         .where(YoutubeVideo.analysis_status == "failed")
@@ -787,13 +783,13 @@ async def reanalyze_failed_videos(
         )
     )
 
-    for pk in video_pks:
-        asyncio.create_task(_trigger_reanalyze(pk))
-
     job_id = str(uuid.uuid4())
     return PollTriggerResponse(
         job_id=job_id,
-        message=f"{len(video_pks)}개 영상 재분석 요청이 접수되었습니다. (video_pks={video_pks})",
+        message=(
+            f"{len(video_pks)}개 영상을 pending으로 되돌렸습니다. "
+            "미분석 배치 스케줄 잡이 순차 분석합니다."
+        ),
     )
 
 
@@ -1184,6 +1180,7 @@ def get_runtime_settings():
     n = mgr.get_notification()
     return RuntimeSettingsResponse(
         master_interval_min=p.master_interval_min,
+        pending_analysis_interval_min=p.pending_analysis_interval_min,
         default_channel_interval_min=p.default_channel_interval_min,
         youtube_api_key_masked=mask_secret(p.youtube_api_key),
         youtube_daily_quota=p.youtube_daily_quota,
@@ -1202,6 +1199,7 @@ def update_runtime_settings(body: RuntimeSettingsUpdate, db=Depends(_settings_db
     """런타임 설정 수정 (polling / notification)."""
     poll_fields = {
         "master_interval_min": ("polling", "master_interval_min", False),
+        "pending_analysis_interval_min": ("polling", "pending_analysis_interval_min", False),
         "default_channel_interval_min": ("polling", "default_channel_interval_min", False),
         "youtube_daily_quota": ("polling", "youtube_daily_quota", False),
         "window_hours": ("polling", "window_hours", False),

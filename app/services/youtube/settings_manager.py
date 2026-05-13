@@ -160,7 +160,6 @@ class AIGatewaySettings:
 
 
 @dataclass
-@dataclass
 class PromptSettings:
     primary_prompt: str = ""
     fallback_prompt: str = ""
@@ -177,6 +176,8 @@ class PromptSettings:
 @dataclass
 class PollingSettings:
     master_interval_min: int = 12
+    # 미분석(pending) 영상을 DB에서 집어 AI 분석하는 스케줄 잡 주기(분). 미설정 시 master_interval_min과 동일하게 취급.
+    pending_analysis_interval_min: int = 12
     default_channel_interval_min: int = 720
     youtube_api_key: str = ""
     youtube_daily_quota: int = 10000
@@ -189,8 +190,17 @@ class PollingSettings:
     @classmethod
     def from_rows(cls, rows: list[YoutubeSetting], fernet: Fernet | None) -> PollingSettings:
         by_key = {r.key: r for r in rows}
+        master_interval_min = int(_row_typed(by_key.get("master_interval_min"), fernet) or 12)
+        raw_pending = _row_typed(by_key.get("pending_analysis_interval_min"), fernet)
+        if raw_pending in (None, ""):
+            pending_analysis_interval_min = master_interval_min
+        else:
+            pending_analysis_interval_min = int(raw_pending)
+            if pending_analysis_interval_min < 1:
+                pending_analysis_interval_min = master_interval_min
         return cls(
-            master_interval_min=int(_row_typed(by_key.get("master_interval_min"), fernet) or 12),
+            master_interval_min=master_interval_min,
+            pending_analysis_interval_min=pending_analysis_interval_min,
             default_channel_interval_min=int(
                 _row_typed(by_key.get("default_channel_interval_min"), fernet) or 720
             ),

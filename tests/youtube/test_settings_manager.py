@@ -136,6 +136,13 @@ def test_category_typed_values(db_session):
         ),
         YoutubeSetting(
             category="polling",
+            key="pending_analysis_interval_min",
+            value="3",
+            value_type="int",
+            is_secret=0,
+        ),
+        YoutubeSetting(
+            category="polling",
             key="youtube_daily_quota",
             value="5000",
             value_type="int",
@@ -163,6 +170,7 @@ def test_category_typed_values(db_session):
     mgr = _make_manager(db_session, key)
     p = mgr.get_polling()
     assert p.master_interval_min == 15
+    assert p.pending_analysis_interval_min == 3
     assert p.youtube_daily_quota == 5000
     assert mgr.get_ai_gateway().temperature == 0.7
     assert mgr.get_notification().telegram_enabled is False

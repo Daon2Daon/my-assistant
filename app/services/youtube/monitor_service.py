@@ -1,8 +1,11 @@
 """
-YouTube 모니터 서비스: 채널 폴링 + 분석 파이프라인 오케스트레이터.
+YouTube 모니터 서비스: 채널 폴링(수집)과 미분석 영상 배치 분석을 분리한다.
+
+- `youtube_master_poll_sync`: 채널 폴링 → 신규 영상 DB 적재만 수행.
+- `youtube_pending_analysis_sync`: DB의 `pending` 영상을 선점(claim) 후 분석 파이프라인 실행.
 
 APScheduler(BackgroundScheduler)는 별도 스레드에서 동기 함수를 실행하므로,
-`youtube_master_poll_sync()`가 asyncio.run()으로 비동기 로직을 감쌉니다.
+각 sync 엔트리포인트가 asyncio.run()으로 비동기 로직을 감싼다.
 """
 
 from __future__ import annotations
@@ -35,6 +38,45 @@ from app.services.youtube.youtube_api import (
     YouTubeQuotaExceededError,
     get_youtube_api_client,
 )
+
+
+def _videos_table_sql_ident() -> str:
+    """PostgreSQL quoted identifier for youtube.videos (스키마는 모델과 동일)."""
+    t = YoutubeVideo.__table__
+    schema = t.schema or "youtube"
+    return f'"{schema}"."{t.name}"'
+
+
+async def claim_pending_video_pks(session: AsyncSession, limit: int) -> List[int]:
+    """
+    analysis_status='pending' 행을 FOR UPDATE SKIP LOCKED으로 선점하고
+    'processing'으로 바꾼 뒤 video_pk 목록을 반환한다.
+    """
+    if limit < 1:
+        return []
+    fq = _videos_table_sql_ident()
+    stmt = text(
+        f"""
+        WITH picked AS (
+            SELECT video_pk FROM {fq}
+            WHERE analysis_status = :pending
+            ORDER BY published_at ASC NULLS LAST, video_pk ASC
+            LIMIT :lim
+            FOR UPDATE SKIP LOCKED
+        )
+        UPDATE {fq} AS v
+        SET analysis_status = :processing, updated_at = NOW()
+        FROM picked
+        WHERE v.video_pk = picked.video_pk
+        RETURNING v.video_pk
+        """
+    )
+    result = await session.execute(
+        stmt,
+        {"pending": "pending", "processing": "processing", "lim": limit},
+    )
+    rows = result.fetchall()
+    return [int(r[0]) for r in rows]
 
 
 class MonitorService:
@@ -250,7 +292,6 @@ async def _youtube_master_poll_async() -> None:
     print(f"📡 YouTube 마스터 폴링: {len(due_channels)}개 채널 처리 시작")
 
     poll_sem = asyncio.Semaphore(int(polling_cfg.max_concurrent_channels or 5))
-    analysis_sem = asyncio.Semaphore(int(polling_cfg.max_concurrent_analyses or 3))
 
     async def _process_one(channel: YoutubeChannel) -> None:
         async with poll_sem:
@@ -275,9 +316,6 @@ async def _youtube_master_poll_async() -> None:
                         duration_ms=timer.elapsed_ms,
                         channel_pk=channel.channel_pk,
                     )
-
-                    if new_pks:
-                        await _analyze_batch(new_pks, analysis_sem, polling_cfg)
 
                 except YouTubeQuotaExceededError as e:
                     print(f"⚠️  YouTube 쿼터 초과: {e}")
@@ -304,12 +342,48 @@ async def _youtube_master_poll_async() -> None:
     print("✅ YouTube 마스터 폴링 완료")
 
 
+async def _youtube_pending_analysis_async() -> None:
+    """스케줄 잡: DB에서 pending 영상을 선점한 뒤 배치 분석."""
+    mgr = get_youtube_settings_manager()
+    polling_cfg = mgr.get_polling()
+
+    try:
+        engine = await db_engine_manager.get_engine()
+    except DBNotConfiguredError:
+        print("⚠️  YouTube DB 미설정 - 미분석 영상 분석 잡 SKIP")
+        return
+    except Exception as e:
+        print(f"❌ YouTube DB 연결 실패 - 미분석 영상 분석 잡 SKIP: {e}")
+        return
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    max_conc = int(polling_cfg.max_concurrent_analyses or 3)
+    batch_limit = min(50, max(5, max_conc * 5))
+
+    async with session_factory() as sess:
+        async with sess.begin():
+            claimed = await claim_pending_video_pks(sess, batch_limit)
+
+    if not claimed:
+        return
+
+    print(f"🧠 YouTube 미분석 배치: {len(claimed)}건 분석 시작")
+    analysis_sem = asyncio.Semaphore(max_conc)
+    await _analyze_batch(claimed, analysis_sem, polling_cfg)
+    print("✅ YouTube 미분석 배치 완료")
+
+
+def youtube_pending_analysis_sync() -> None:
+    """APScheduler에 등록할 동기 wrapper (미분석 영상 배치 분석)."""
+    asyncio.run(_youtube_pending_analysis_async())
+
+
 async def _analyze_batch(
     video_pks: List[int],
     sem: asyncio.Semaphore,
     polling_cfg: PollingSettings,
 ) -> None:
-    """신규 영상 분석.
+    """영상 분석 배치 (스케줄러 미분석 잡 또는 기타 호출부에서 video_pk 목록 전달).
 
     analysis_interval_sec > 0 이면 영상 간 순차 처리하며 대기 시간 삽입.
     Gemini 무료 티어처럼 분당 호출 제한이 있는 경우 throttling 역할을 합니다.

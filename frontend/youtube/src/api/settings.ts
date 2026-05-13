@@ -67,6 +67,7 @@ export interface ModelInfo {
 
 export interface RuntimeSettingsResponse {
   master_interval_min: number
+  pending_analysis_interval_min: number
   default_channel_interval_min: number
   youtube_api_key_masked: string
   youtube_daily_quota: number
@@ -80,6 +81,7 @@ export interface RuntimeSettingsResponse {
 
 export interface RuntimeSettingsUpdate {
   master_interval_min?: number
+  pending_analysis_interval_min?: number
   default_channel_interval_min?: number
   youtube_api_key?: string
   youtube_daily_quota?: number

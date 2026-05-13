@@ -511,32 +511,46 @@ class SchedulerService:
     def setup_youtube_jobs(self):
         """
         YouTube 모니터 Job 설정.
-        - youtube_master_poll: master_interval_min 마다 실행 (기본 12분)
+        - youtube_master_poll: master_interval_min 마다 채널 폴링(신규 영상 DB 적재만)
+        - youtube_pending_analysis: pending_analysis_interval_min 마다 미분석 영상 배치 분석
         - youtube_gateway_health: 5분 주기 litellm 헬스체크
         설정 DB가 없거나 미설정 상태여도 예외 없이 종료 (DB 설정 후 재기동 대비).
         """
         from app.services.youtube.monitor_service import (
             youtube_master_poll_sync,
             youtube_gateway_health_sync,
+            youtube_pending_analysis_sync,
         )
 
         try:
             from app.services.youtube.settings_manager import get_youtube_settings_manager
             mgr = get_youtube_settings_manager()
             polling_cfg = mgr.get_polling()
-            interval_min = int(polling_cfg.master_interval_min or 12)
+            poll_interval_min = int(polling_cfg.master_interval_min or 12)
+            analysis_interval_min = int(polling_cfg.pending_analysis_interval_min or poll_interval_min)
         except Exception:
-            interval_min = 12
+            poll_interval_min = 12
+            analysis_interval_min = 12
 
         try:
             self.add_interval_job(
                 func=youtube_master_poll_sync,
                 job_id="youtube_master_poll",
-                minutes=interval_min,
+                minutes=poll_interval_min,
             )
-            print(f"✅ YouTube 마스터 폴링 Job 등록: {interval_min}분마다 실행")
+            print(f"✅ YouTube 마스터 폴링 Job 등록: {poll_interval_min}분마다 실행")
         except Exception as e:
             print(f"❌ YouTube 마스터 폴링 Job 등록 실패: {e}")
+
+        try:
+            self.add_interval_job(
+                func=youtube_pending_analysis_sync,
+                job_id="youtube_pending_analysis",
+                minutes=analysis_interval_min,
+            )
+            print(f"✅ YouTube 미분석 배치 분석 Job 등록: {analysis_interval_min}분마다 실행")
+        except Exception as e:
+            print(f"❌ YouTube 미분석 배치 분석 Job 등록 실패: {e}")
 
         try:
             self.add_interval_job(
@@ -553,13 +567,14 @@ class SchedulerService:
 
     def update_youtube_master_poll_job(self):
         """
-        polling.master_interval_min 변경 시 마스터 폴링 잡 재등록.
+        polling 주기 변경 시 YouTube 관련 interval 잡 재등록.
         """
         try:
             self.remove_job("youtube_master_poll")
+            self.remove_job("youtube_pending_analysis")
             self.setup_youtube_jobs()
         except Exception as e:
-            print(f"❌ YouTube 마스터 폴링 Job 업데이트 실패: {e}")
+            print(f"❌ YouTube 폴링/분석 Job 업데이트 실패: {e}")
 
     def setup_youtube_notify_jobs(self):
         """

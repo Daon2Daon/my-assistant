@@ -70,6 +70,7 @@ export default function RuntimeSettings() {
       setData(d)
       setForm({
         master_interval_min: d.master_interval_min,
+        pending_analysis_interval_min: d.pending_analysis_interval_min,
         default_channel_interval_min: d.default_channel_interval_min,
         youtube_api_key: '',
         youtube_daily_quota: d.youtube_daily_quota,
@@ -94,6 +95,7 @@ export default function RuntimeSettings() {
       const { youtube_api_key, ...rest } = form
       const payload: RuntimeSettingsUpdate = {
         master_interval_min: rest.master_interval_min,
+        pending_analysis_interval_min: rest.pending_analysis_interval_min,
         default_channel_interval_min: rest.default_channel_interval_min,
         youtube_daily_quota: rest.youtube_daily_quota,
         window_hours: rest.window_hours,
@@ -104,7 +106,7 @@ export default function RuntimeSettings() {
       const updated = await runtimeApi.update(payload)
       setData(updated)
       setSaved(true)
-      setSaveMessage('저장되었습니다. 마스터 모니터링 잡 주기가 즉시 반영됩니다.')
+      setSaveMessage('저장되었습니다. 마스터 폴링·미분석 배치 분석 잡 주기가 즉시 반영됩니다.')
       setTimeout(() => setSaved(false), 4000)
     } catch (e) {
       alert((e as Error).message)
@@ -175,6 +177,18 @@ export default function RuntimeSettings() {
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <p className="text-xs text-gray-400 mt-1">마스터 스케줄러가 채널 목록을 확인하는 주기</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                미분석 배치 분석 주기 (분)
+              </label>
+              <input
+                type="number" min={1} max={60}
+                value={form.pending_analysis_interval_min ?? 12}
+                onChange={(e) => setF('pending_analysis_interval_min', Number(e.target.value))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-gray-400 mt-1">DB에 pending인 영상을 집어 AI 분석하는 주기 (채널 폴링과 별도)</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">

@@ -142,6 +142,29 @@ OPENWEATHER_API_KEY=your_weather_api_key
 
 # Telegram Bot
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+
+# YouTube Monitor - Settings 암호화 키 (필수)
+# 생성: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+YOUTUBE_SETTINGS_FERNET_KEY=your_fernet_key_here
+
+# YouTube Monitor - AI Gateway (LiteLLM)
+YOUTUBE_BOOTSTRAP_LITELLM_BASE_URL=http://your-litellm-host:4000
+YOUTUBE_BOOTSTRAP_LITELLM_API_KEY=your_litellm_api_key
+YOUTUBE_BOOTSTRAP_PRIMARY_MODEL=gemini-2.5-flash
+YOUTUBE_BOOTSTRAP_FALLBACK_MODEL=gemini/gemini-2.5-flash
+YOUTUBE_BOOTSTRAP_TAGGING_MODEL=gemini/gemini-2.5-flash
+
+# YouTube Monitor - PostgreSQL DB 접속 정보
+YOUTUBE_BOOTSTRAP_DB_HOST=your_pg_host
+YOUTUBE_BOOTSTRAP_DB_PORT=5432
+YOUTUBE_BOOTSTRAP_DB_NAME=youtube_monitor
+YOUTUBE_BOOTSTRAP_DB_USER=your_pg_user
+YOUTUBE_BOOTSTRAP_DB_PASSWORD=your_pg_password
+YOUTUBE_BOOTSTRAP_DB_SCHEMA=youtube
+YOUTUBE_BOOTSTRAP_DB_SSLMODE=prefer
+
+# YouTube Monitor - YouTube Data API
+YOUTUBE_BOOTSTRAP_YOUTUBE_API_KEY=your_youtube_api_key
 ```
 
 ### 2. .env 파일 권한 설정
@@ -426,8 +449,12 @@ docker compose logs -f my-assistant
 - [ ] 모든 필수 환경변수 설정 완료
 - [ ] `DEBUG=False` 설정 (프로덕션)
 - [ ] REDIRECT_URI가 실제 도메인으로 설정됨
+- [ ] `YOUTUBE_SETTINGS_FERNET_KEY` 설정 완료 (YouTube 기능 사용 시 필수)
+- [ ] `YOUTUBE_BOOTSTRAP_LITELLM_BASE_URL` 및 `YOUTUBE_BOOTSTRAP_LITELLM_API_KEY` 설정 완료
+- [ ] `YOUTUBE_BOOTSTRAP_DB_*` 접속 정보 설정 완료
 - [ ] 컨테이너 재시작 완료
 - [ ] 로그인 테스트 성공
+- [ ] YouTube 설정 페이지에서 AI Gateway / DB 연결 확인
 
 ---
 

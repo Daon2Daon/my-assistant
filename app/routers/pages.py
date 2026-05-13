@@ -166,7 +166,7 @@ async def get_auth_status(db: Session = Depends(get_db)):
 
         return JSONResponse(
             content={
-                "google_connected": bool(user.google_access_token),
+                "google_connected": bool(user.google_access_token and user.google_refresh_token),
                 "telegram_connected": bool(user.telegram_chat_id),
             }
         )

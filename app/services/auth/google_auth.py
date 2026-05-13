@@ -4,7 +4,7 @@
 """
 
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
@@ -26,11 +26,8 @@ class GoogleAuthService:
             "https://www.googleapis.com/auth/userinfo.email",
         ]
 
-    def create_flow(self) -> Flow:
-        """
-        OAuth Flow 생성
-        """
-        client_config = {
+    def _web_client_config(self) -> dict:
+        return {
             "web": {
                 "client_id": self.client_id,
                 "client_secret": self.client_secret,
@@ -40,38 +37,51 @@ class GoogleAuthService:
             }
         }
 
-        flow = Flow.from_client_config(
-            client_config=client_config,
+    def create_flow(self) -> Flow:
+        """
+        OAuth Flow 생성 (토큰 갱신·API 호출용, PKCE 없음)
+        """
+        return Flow.from_client_config(
+            client_config=self._web_client_config(),
             scopes=self.scopes,
             redirect_uri=self.redirect_uri,
         )
 
-        return flow
-
-    def get_authorization_url(self) -> str:
+    def get_authorization_url(self) -> Tuple[str, str, Optional[str]]:
         """
         구글 로그인 인증 URL 생성
 
+        PKCE(code_verifier)는 authorization 단계와 token 단계에서 동일한 값이어야 합니다.
+        반환된 code_verifier는 서버 세션에 저장한 뒤 콜백의 get_credentials_from_code에 넘겨야 합니다.
+
         Returns:
-            str: 인증 URL
+            (auth_url, state, code_verifier)
         """
-        flow = self.create_flow()
+        flow = Flow.from_client_config(
+            client_config=self._web_client_config(),
+            scopes=self.scopes,
+            redirect_uri=self.redirect_uri,
+            autogenerate_code_verifier=True,
+        )
 
         # offline access를 통해 refresh token 획득
-        auth_url, _ = flow.authorization_url(
+        auth_url, state = flow.authorization_url(
             access_type="offline",
             prompt="consent",  # 매번 동의 화면 표시 (refresh token 확보)
             include_granted_scopes="true",
         )
 
-        return auth_url
+        return auth_url, state, flow.code_verifier
 
-    def get_credentials_from_code(self, code: str) -> Credentials:
+    def get_credentials_from_code(
+        self, code: str, code_verifier: Optional[str] = None
+    ) -> Credentials:
         """
         인증 코드로 Credentials 발급
 
         Args:
             code: 구글 인증 서버에서 받은 인증 코드
+            code_verifier: 로그인 단계(get_authorization_url)에서 발급·세션에 보관한 PKCE 검증값
 
         Returns:
             Credentials: 구글 인증 정보 객체
@@ -79,7 +89,13 @@ class GoogleAuthService:
         Raises:
             Exception: 인증 실패 시
         """
-        flow = self.create_flow()
+        flow = Flow.from_client_config(
+            client_config=self._web_client_config(),
+            scopes=self.scopes,
+            redirect_uri=self.redirect_uri,
+            code_verifier=code_verifier,
+            autogenerate_code_verifier=False,
+        )
 
         try:
             flow.fetch_token(code=code)

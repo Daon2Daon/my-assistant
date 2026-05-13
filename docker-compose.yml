@@ -29,11 +29,33 @@
         - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}                                                                                                                                                               
         - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI}                                                                                                                                                                 
                                                                                                                                                                                                                      
-        # OpenWeatherMap                                                                                                                                                                                             
-        - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}                                                                                                                                                                 
-                                                                                                                                                                                                                     
-        # Telegram Bot                                                                                                                                                                                               
-        - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}                                                                                                                                                                   
+        # OpenWeatherMap
+        - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
+
+        # Telegram Bot
+        - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+
+        # YouTube Monitor - Settings 암호화 키 (필수)
+        - YOUTUBE_SETTINGS_FERNET_KEY=${YOUTUBE_SETTINGS_FERNET_KEY}
+
+        # YouTube Monitor - 부트스트랩 (DB)
+        - YOUTUBE_BOOTSTRAP_DB_HOST=${YOUTUBE_BOOTSTRAP_DB_HOST}
+        - YOUTUBE_BOOTSTRAP_DB_PORT=${YOUTUBE_BOOTSTRAP_DB_PORT:-5432}
+        - YOUTUBE_BOOTSTRAP_DB_NAME=${YOUTUBE_BOOTSTRAP_DB_NAME:-youtube_monitor}
+        - YOUTUBE_BOOTSTRAP_DB_USER=${YOUTUBE_BOOTSTRAP_DB_USER}
+        - YOUTUBE_BOOTSTRAP_DB_PASSWORD=${YOUTUBE_BOOTSTRAP_DB_PASSWORD}
+        - YOUTUBE_BOOTSTRAP_DB_SCHEMA=${YOUTUBE_BOOTSTRAP_DB_SCHEMA:-youtube}
+        - YOUTUBE_BOOTSTRAP_DB_SSLMODE=${YOUTUBE_BOOTSTRAP_DB_SSLMODE:-prefer}
+
+        # YouTube Monitor - 부트스트랩 (AI Gateway)
+        - YOUTUBE_BOOTSTRAP_LITELLM_BASE_URL=${YOUTUBE_BOOTSTRAP_LITELLM_BASE_URL}
+        - YOUTUBE_BOOTSTRAP_LITELLM_API_KEY=${YOUTUBE_BOOTSTRAP_LITELLM_API_KEY}
+        - YOUTUBE_BOOTSTRAP_PRIMARY_MODEL=${YOUTUBE_BOOTSTRAP_PRIMARY_MODEL:-gemini-2.5-flash}
+        - YOUTUBE_BOOTSTRAP_FALLBACK_MODEL=${YOUTUBE_BOOTSTRAP_FALLBACK_MODEL:-gemini/gemini-2.5-flash}
+        - YOUTUBE_BOOTSTRAP_TAGGING_MODEL=${YOUTUBE_BOOTSTRAP_TAGGING_MODEL:-gemini/gemini-2.5-flash}
+
+        # YouTube Monitor - 부트스트랩 (YouTube API)
+        - YOUTUBE_BOOTSTRAP_YOUTUBE_API_KEY=${YOUTUBE_BOOTSTRAP_YOUTUBE_API_KEY}
                                                                                                                                                                                                                      
       labels:                                                                                                                                                                                                        
         - "com.centurylinklabs.watchtower.enable=true"                                                                                                                                                               

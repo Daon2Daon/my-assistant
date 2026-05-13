@@ -6,6 +6,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Form
 from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
+from typing import Optional
 from urllib.parse import quote
 from pydantic import BaseModel
 
@@ -47,28 +48,53 @@ class TelegramVerifyRequest(BaseModel):
 
 
 @router.get("/google/login")
-async def google_login():
+async def google_login(request: Request):
     """
     구글 로그인 시작
     사용자를 구글 인증 페이지로 리다이렉트
     """
-    auth_url = google_auth_service.get_authorization_url()
+    auth_url, state, code_verifier = google_auth_service.get_authorization_url()
+    request.session["google_oauth_state"] = state
+    if code_verifier:
+        request.session["google_oauth_code_verifier"] = code_verifier
     return RedirectResponse(url=auth_url)
 
 
 @router.get("/google/callback")
-async def google_callback(code: str = Query(...), db: Session = Depends(get_db)):
+async def google_callback(
+    request: Request,
+    code: str = Query(...),
+    state: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
     """
     구글 인증 콜백
     인증 코드를 받아서 토큰을 발급하고 DB에 저장
 
     Args:
         code: 구글 인증 서버에서 받은 인증 코드
+        state: OAuth CSRF 방지용 state (로그인 시작 시 세션에 저장한 값과 일치해야 함)
         db: 데이터베이스 세션
     """
     try:
+        stored_state = request.session.pop("google_oauth_state", None)
+        if not state or not stored_state or state != stored_state:
+            raise HTTPException(
+                status_code=400,
+                detail="OAuth state 검증에 실패했습니다. 같은 브라우저에서 Google 로그인을 다시 시도해 주세요.",
+            )
+
+        code_verifier = request.session.pop("google_oauth_code_verifier", None)
+        if not code_verifier:
+            raise HTTPException(
+                status_code=400,
+                detail="로그인 세션(PKCE)을 찾을 수 없습니다. 쿠키·세션을 허용한 뒤 다시 시도해 주세요.",
+            )
+
         # 인증 코드로 Credentials 발급
-        credentials = google_auth_service.get_credentials_from_code(code)
+        credentials = google_auth_service.get_credentials_from_code(
+            code, code_verifier=code_verifier
+        )
 
         access_token = credentials.token
         refresh_token = credentials.refresh_token
@@ -97,15 +123,18 @@ async def google_callback(code: str = Query(...), db: Session = Depends(get_db))
         return RedirectResponse(url="/settings?google_login=success", status_code=303)
 
     except Exception as e:
-        # 에러 로그 기록 (실패해도 계속 진행)
+        fail_msg = e.detail if isinstance(e, HTTPException) else str(e)
+        if not isinstance(fail_msg, str):
+            fail_msg = str(fail_msg)
         try:
-            create_log(db, "auth", "FAIL", f"구글 로그인 실패: {str(e)}")
-        except:
+            create_log(db, "auth", "FAIL", f"구글 로그인 실패: {fail_msg}")
+        except Exception:
             pass
 
-        # 에러 발생 시에도 Settings 페이지로 리다이렉트
-        error_message = quote(str(e))
-        return RedirectResponse(url=f"/settings?google_login=error&message={error_message}", status_code=303)
+        error_message = quote(fail_msg)
+        return RedirectResponse(
+            url=f"/settings?google_login=error&message={error_message}", status_code=303
+        )
 
 
 @router.get("/google/status")

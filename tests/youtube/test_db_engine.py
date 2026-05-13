@@ -6,8 +6,15 @@ from app.services.youtube.db_engine import (
     _is_transaction_boundary_statement,
     _numbered_postgres_migrations,
     _split_postgres_sql_script,
+    _validated_pg_schema,
     ensure_schema,
 )
+
+
+def test_validated_pg_schema_maps_public_to_youtube():
+    assert _validated_pg_schema("public") == "youtube"
+    assert _validated_pg_schema("PUBLIC") == "youtube"
+    assert _validated_pg_schema("youtube") == "youtube"
 
 
 def test_split_postgres_sql_script_dollar_quote_keeps_body():

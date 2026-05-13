@@ -306,8 +306,15 @@ _PG_IDENT_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
 def _validated_pg_schema(name: str | None, default: str = "youtube") -> str:
-    """설정값으로부터 안전한 PostgreSQL 스키마 이름만 허용한다 (SQL 식별자 주입 방지)."""
+    """
+    설정값으로부터 안전한 PostgreSQL 스키마 이름만 허용한다 (SQL 식별자 주입 방지).
+
+    `public`은 이 앱의 마이그레이션 대상 스키마가 아니며, CREATE SCHEMA 시 권한 이슈가 잦다.
+    SettingsManager에서도 정규화하지만, 여기서 한 번 더 `youtube`로 통일한다.
+    """
     raw = (name or default).strip()
+    if raw.lower() == "public":
+        return default
     if _PG_IDENT_RE.fullmatch(raw):
         return raw
     return default

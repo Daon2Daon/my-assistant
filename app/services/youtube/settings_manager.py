@@ -78,6 +78,21 @@ def _row_typed(row: YoutubeSetting | None, fernet: Fernet | None) -> Any:
     return _coerce_value(raw, row.value_type)
 
 
+def _normalize_postgres_schema_name_for_youtube_app(raw: str | None) -> str:
+    """
+    UI/SQLite에 저장된 PG 스키마명을 런타임에 맞게 정리한다.
+
+    이 앱의 PostgreSQL 마이그레이션(`migrations/youtube/*.sql`)은 객체를 `youtube` 스키마에
+    만든다. PostgreSQL 기본 스키마 이름인 `public`만 설정에 넣는 경우,
+    `CREATE SCHEMA public` / search_path와 실제 테이블 위치가 엇갈리고,
+    앱 DB 역할에 CREATE 권한이 없으면 마이그레이션이 반복 실패한다.
+    """
+    s = (raw or "youtube").strip()
+    if s.lower() == "public":
+        return "youtube"
+    return s
+
+
 @dataclass
 class DatabaseSettings:
     host: str = ""
@@ -105,7 +120,9 @@ class DatabaseSettings:
             dbname=str(_row_typed(by_key.get("dbname"), fernet) or "youtube_monitor"),
             username=str(_row_typed(by_key.get("username"), fernet) or ""),
             password=str(_row_typed(by_key.get("password"), fernet) or ""),
-            schema=str(_row_typed(by_key.get("schema"), fernet) or "youtube"),
+            schema=_normalize_postgres_schema_name_for_youtube_app(
+                str(_row_typed(by_key.get("schema"), fernet) or "youtube")
+            ),
             sslmode=str(_row_typed(by_key.get("sslmode"), fernet) or "prefer"),
         )
 

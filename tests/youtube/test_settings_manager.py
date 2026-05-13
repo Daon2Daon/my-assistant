@@ -216,3 +216,26 @@ def test_database_settings_is_configured_and_signature(db_session):
         "youtube",
         "require",
     ]
+
+
+def test_database_schema_public_is_normalized_to_youtube(db_session):
+    """SQLite에 public이 저장돼 있어도 앱은 마이그레이션과 맞추기 위해 youtube로 취급한다."""
+    for c, k, v in [
+        ("database", "host", "db.example.com"),
+        ("database", "port", "5432"),
+        ("database", "dbname", "yt"),
+        ("database", "username", "u"),
+        ("database", "schema", "public"),
+    ]:
+        db_session.add(
+            YoutubeSetting(
+                category=c,
+                key=k,
+                value=v,
+                value_type="int" if k == "port" else "string",
+                is_secret=0,
+            )
+        )
+    db_session.commit()
+    mgr = _make_manager(db_session, None)
+    assert mgr.get_database().schema == "youtube"

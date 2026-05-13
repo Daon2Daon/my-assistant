@@ -51,7 +51,7 @@ SET video_count = (
 );
 
 -- ── 3. videos.description GIN 인덱스 (pg_trgm 기반 LIKE 검색용) ───────────
--- pg_trgm 확장은 ensure_schema() 진입 시 autocommit으로 미리 설치됨
+-- pg_trgm 확장은 ensure_schema()에서 앱 스키마(youtube 등)에 AUTOCOMMIT으로 미리 설치됨
 
 CREATE INDEX IF NOT EXISTS idx_videos_description_trgm
     ON youtube.videos

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 import ssl as ssl_std
 import weakref
 from dataclasses import dataclass
@@ -17,9 +18,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
 
+import asyncpg.exceptions
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.exc import IntegrityError, ProgrammingError
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncConnection, create_async_engine
 
 from app.services.youtube.settings_manager import DatabaseSettings, get_youtube_settings_manager
 
@@ -79,17 +81,93 @@ def _is_comment_only_sql(stmt: str) -> bool:
     return True
 
 
-async def _execute_script_statements(conn: Any, sql: str) -> None:
-    for piece in _split_postgres_sql_script(sql):
-        if not piece.strip() or _is_transaction_boundary_statement(piece):
+def _is_create_schema_migrations_table_statement(stmt: str, schema: str) -> bool:
+    """001_init 의 schema_migrations 테이블 생성 구문인지."""
+    parts: list[str] = []
+    for line in stmt.splitlines():
+        s = line.strip()
+        if not s or s.startswith("--"):
             continue
-        if _is_comment_only_sql(piece):
-            continue
-        await conn.execute(text(piece))
+        parts.append(s)
+    if not parts:
+        return False
+    joined = re.sub(r"\s+", " ", " ".join(parts)).strip().rstrip(";").strip().lower()
+    return joined.startswith(f"create table if not exists {schema.lower()}.schema_migrations")
 
 
-async def _fetch_applied_migration_versions(conn: Any) -> set[int]:
-    result = await conn.execute(text("SELECT version FROM youtube.schema_migrations"))
+def _is_pg_typename_nsp_conflict(exc: Exception) -> bool:
+    """테이블행 타입 이름이 같은 스키마에 이미 있을 때 (중단된 적용·레이스 등)."""
+    msg = str(getattr(exc, "orig", exc)).lower()
+    return "pg_type_typname_nsp_index" in msg
+
+
+def _is_redundant_create_schema_statement(stmt: str, schema: str) -> bool:
+    """
+    001_init_schema.sql 의 CREATE SCHEMA IF NOT EXISTS … 구문.
+
+    _ensure_app_schema()에서 이미 스키마를 보장하므로 SQL로 재실행할 필요가 없다.
+    일부 환경에서는 스키마가 이미 있어도 CREATE SCHEMA 구문에 대해
+    CREATE 권한 검사가 이루어져 permission denied 가 난다.
+    """
+    parts: list[str] = []
+    for line in stmt.splitlines():
+        s = line.strip()
+        if not s or s.startswith("--"):
+            continue
+        parts.append(s)
+    if not parts:
+        return False
+    joined = re.sub(r"\s+", " ", " ".join(parts)).strip().rstrip(";").strip()
+    return joined.lower() == f"create schema if not exists {schema.lower()}"
+
+
+async def _load_applied_versions(engine: AsyncEngine, schema: str) -> set[int]:
+    """
+    schema_migrations 테이블에서 이미 적용된 버전 번호 집합을 반환한다.
+    테이블이 아직 존재하지 않으면 빈 집합을 반환한다.
+    """
+    async with engine.connect() as conn:
+        try:
+            return await _fetch_applied_migration_versions(conn, schema)
+        except Exception:
+            return set()
+
+
+async def _apply_migration_sql(conn: AsyncConnection, sql: str, schema: str) -> None:
+    """
+    단일 마이그레이션 SQL을 현재 트랜잭션(conn) 안에서 실행한다.
+
+    - CREATE SCHEMA IF NOT EXISTS: _ensure_app_schema()가 이미 보장하므로 건너뜀
+    - BEGIN / COMMIT / ROLLBACK: engine.begin() 트랜잭션과 충돌하므로 건너뜀
+    - schema_migrations 테이블 생성: 부분 롤백 시 고아 타입이 남을 수 있어 savepoint로 감쌈
+    """
+    for stmt in _split_postgres_sql_script(sql):
+        if not stmt.strip() or _is_comment_only_sql(stmt):
+            continue
+        if _is_transaction_boundary_statement(stmt):
+            continue
+        if _is_redundant_create_schema_statement(stmt, schema):
+            continue
+        if _is_create_schema_migrations_table_statement(stmt, schema):
+            async with conn.begin_nested():
+                try:
+                    await conn.execute(text(stmt))
+                except IntegrityError as exc:
+                    if _is_pg_typename_nsp_conflict(exc):
+                        raise RuntimeError(
+                            f"'{schema}.schema_migrations' 이름이 이미 사용 중입니다 "
+                            "(이전 마이그레이션 중단으로 타입만 남은 경우가 많습니다). "
+                            "DB 슈퍼유저/소유자로 다음 실행 후 다시 '스키마 적용' 하세요.\n"
+                            f"  DROP TYPE IF EXISTS {schema}.schema_migrations CASCADE;"
+                        ) from exc
+                    raise
+        else:
+            await conn.execute(text(stmt))
+
+
+async def _fetch_applied_migration_versions(conn: Any, schema: str) -> set[int]:
+    safe = _validated_pg_schema(schema, "youtube")
+    result = await conn.execute(text(f"SELECT version FROM {safe}.schema_migrations"))
     rows = result.fetchall()
     return {int(row[0]) for row in rows}
 
@@ -224,50 +302,107 @@ def _split_postgres_sql_script(sql: str) -> list[str]:
     return statements
 
 
-def _is_duplicate_schema_race(exc: Exception) -> bool:
-    """
-    동시 실행 경쟁으로 CREATE SCHEMA IF NOT EXISTS 가 드물게 UniqueViolation을 내는 경우를 식별한다.
-    """
-    msg = str(exc).lower()
-    return (
-        "pg_namespace_nspname_index" in msg
-        and "(nspname)=(youtube)" in msg
-        and "duplicate key value violates unique constraint" in msg
+_PG_IDENT_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def _validated_pg_schema(name: str | None, default: str = "youtube") -> str:
+    """설정값으로부터 안전한 PostgreSQL 스키마 이름만 허용한다 (SQL 식별자 주입 방지)."""
+    raw = (name or default).strip()
+    if _PG_IDENT_RE.fullmatch(raw):
+        return raw
+    return default
+
+
+async def _pg_namespace_schema_exists(conn: AsyncConnection, schema: str) -> bool:
+    """pg_catalog 기준으로 스키마 존재 여부 (연결 권한으로 조회 가능)."""
+    r = await conn.execute(
+        text("SELECT 1 FROM pg_namespace WHERE nspname = :name LIMIT 1"),
+        {"name": schema},
     )
+    return r.first() is not None
 
 
-async def _ensure_pg_trgm_extension(engine: AsyncEngine) -> None:
+async def _pg_extension_exists(conn: AsyncConnection, extname: str) -> bool:
+    """확장이 이미 이 데이터베이스에 설치되어 있는지 (관리자·슈퍼유저가 선설치한 경우)."""
+    r = await conn.execute(
+        text("SELECT 1 FROM pg_extension WHERE extname = :name LIMIT 1"),
+        {"name": extname},
+    )
+    return r.first() is not None
+
+
+class SchemaPrivilegeError(RuntimeError):
+    """앱 역할이 스키마를 생성할 수 없을 때. 관리자에게 위임해야 한다."""
+
+
+class ExtensionPrivilegeError(RuntimeError):
+    """앱 역할이 CREATE EXTENSION 을 실행할 수 없을 때. 관리자가 확장을 선설치하거나 권한을 줘야 한다."""
+
+
+async def _ensure_app_schema(engine: AsyncEngine, app_schema: str) -> None:
     """
-    pg_trgm 확장을 autocommit 모드로 미리 설치한다.
+    앱 스키마가 존재하는지 확인하고, 없으면 생성을 시도한다.
 
-    CREATE EXTENSION과 그것이 제공하는 opclass(gin_trgm_ops)를 같은 트랜잭션
-    안에서 사용하면 PG가 opclass를 찾지 못한다. autocommit으로 먼저 커밋해두면
-    이후 마이그레이션 트랜잭션에서 안전하게 참조할 수 있다.
-
-    SCHEMA public을 명시하는 이유:
-    엔진의 search_path에 'youtube' 스키마가 포함되어 있으나,
-    최초 실행 시에는 youtube 스키마가 아직 존재하지 않아 PostgreSQL이
-    InvalidSchemaNameError를 발생시킨다. pg_trgm은 DB 레벨 확장이므로
-    항상 public 스키마에 명시적으로 설치한다.
-
-    public 스키마 자체가 없는 PostgreSQL 인스턴스(PG 15+ 또는 커스텀 설정)에서는
-    먼저 public 스키마를 생성한 뒤 확장을 설치한다.
+    마이그레이션 SQL(001_init_schema.sql)은 CREATE SCHEMA IF NOT EXISTS 를 포함하는데,
+    스키마가 없고 권한도 없으면 트랜잭션 안에서 ProgrammingError 가 발생한다.
+    마이그레이션 실행 전에 이 함수로 스키마를 미리 보장하면, SQL 안의
+    CREATE SCHEMA IF NOT EXISTS 는 스키마가 이미 있어 NOTICE 만 내고 통과한다.
     """
-    async with engine.connect() as conn:
-        # public 스키마가 없으면 먼저 생성한다.
-        await conn.execute(
-            text("CREATE SCHEMA IF NOT EXISTS public"),
-            execution_options={"isolation_level": "AUTOCOMMIT"},
-        )
-        await conn.execute(
-            text("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public"),
-            execution_options={"isolation_level": "AUTOCOMMIT"},
-        )
+    autocommit_engine = engine.execution_options(isolation_level="AUTOCOMMIT")
+    async with autocommit_engine.connect() as conn:
+        if await _pg_namespace_schema_exists(conn, app_schema):
+            return
+        try:
+            await conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {app_schema}"))
+        except ProgrammingError as exc:
+            orig = getattr(exc, "orig", None)
+            if isinstance(orig, asyncpg.exceptions.InsufficientPrivilegeError):
+                raise SchemaPrivilegeError(
+                    f"스키마 '{app_schema}' 가 존재하지 않고 현재 DB 사용자에게 생성 권한도 없습니다.\n"
+                    "DB 관리자(슈퍼유저 또는 소유자)가 다음 중 하나를 실행한 뒤 재시도하세요.\n"
+                    f"  CREATE SCHEMA {app_schema} AUTHORIZATION 앱역할이름;\n"
+                    f"  또는: GRANT CREATE ON DATABASE 데이터베이스이름 TO 앱역할이름;"
+                ) from exc
+            raise
+
+
+async def _ensure_pg_trgm_extension(engine: AsyncEngine, app_schema: str) -> None:
+    """
+    앱 스키마에 pg_trgm 확장을 AUTOCOMMIT 모드로 보장한다.
+
+    isolation_level은 SQLAlchemy 2.x에서 연결(connection) 레벨에서만 유효하므로
+    engine.execution_options(isolation_level="AUTOCOMMIT")으로 파생 엔진을 만든 뒤 connect 한다.
+
+    - pg_extension 에 pg_trgm 이 이미 있으면 → 설치를 시도하지 않는다.
+    - 없으면 앱 스키마에 설치 시도. 권한이 없으면 ExtensionPrivilegeError.
+    - public 스키마는 사용하지 않는다.
+      public 이 없는 환경에서는 SCHEMA public 명시 시 InvalidSchemaNameError 가 발생한다.
+    """
+    autocommit_engine = engine.execution_options(isolation_level="AUTOCOMMIT")
+    async with autocommit_engine.connect() as conn:
+        if await _pg_extension_exists(conn, "pg_trgm"):
+            return
+        try:
+            await conn.execute(text(f"CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA {app_schema}"))
+        except ProgrammingError as exc:
+            orig = getattr(exc, "orig", None)
+            if isinstance(orig, asyncpg.exceptions.InsufficientPrivilegeError):
+                raise ExtensionPrivilegeError(
+                    "pg_trgm 확장을 현재 DB 사용자로 설치할 수 없습니다.\n"
+                    "DB 관리자(슈퍼유저 또는 소유자)가 한 번만 다음을 실행한 뒤 재시도하세요.\n"
+                    f"  CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA {app_schema};\n"
+                    "호스팅 콘솔(Neon, Supabase, RDS 등)에서는 대시보드 → Extensions 에서 활성화하세요."
+                ) from exc
+            raise
 
 
 async def ensure_schema(engine: AsyncEngine) -> None:
-    """PG 연결 성공 시 schema/테이블을 멱등 생성하고, 미적용 번호 마이그레이션을 순서대로 적용한다."""
-    await _ensure_pg_trgm_extension(engine)
+    """PG 연결 성공 시 schema/테이블을 멱등 생성하고, 미적용 마이그레이션을 순서대로 적용한다."""
+    cfg = get_youtube_settings_manager().get_database()
+    app_schema = _validated_pg_schema(cfg.schema, "youtube")
+
+    await _ensure_app_schema(engine, app_schema)
+    await _ensure_pg_trgm_extension(engine, app_schema)
 
     mig_dir = _migrations_dir()
     numbered = _numbered_postgres_migrations(mig_dir)
@@ -276,41 +411,13 @@ async def ensure_schema(engine: AsyncEngine) -> None:
             f"초기 스키마 마이그레이션(001_*.sql)을 찾을 수 없습니다: {mig_dir}"
         )
 
-    init_path = numbered[0][1]
-    init_sql = init_path.read_text(encoding="utf-8")
-    async with engine.begin() as conn:
-        for stmt in _split_postgres_sql_script(init_sql):
-            try:
-                await conn.execute(text(stmt))
-            except IntegrityError as exc:
-                normalized = stmt.strip().lower()
-                if (
-                    "create schema if not exists youtube" in normalized
-                    and _is_duplicate_schema_race(exc)
-                ):
-                    continue
-                raise
-        await conn.execute(
-            text(
-                """
-                INSERT INTO youtube.schema_migrations(version, description)
-                VALUES (1, 'init schema')
-                ON CONFLICT (version) DO NOTHING
-                """
-            )
-        )
-
-    async with engine.connect() as conn:
-        applied = await _fetch_applied_migration_versions(conn)
-
+    applied = await _load_applied_versions(engine, app_schema)
     for ver, path in numbered:
-        if ver <= 1 or ver in applied:
+        if ver in applied:
             continue
-        body = path.read_text(encoding="utf-8")
+        sql = path.read_text(encoding="utf-8")
         async with engine.begin() as conn:
-            await _execute_script_statements(conn, body)
-        async with engine.connect() as conn:
-            applied = await _fetch_applied_migration_versions(conn)
+            await _apply_migration_sql(conn, sql, app_schema)
 
 
 def _sync_dispose_async_engine(engine: AsyncEngine) -> None:
@@ -363,10 +470,9 @@ class DBEngineManager:
 
         dsn = _build_async_dsn(cfg)
         ssl_arg = _asyncpg_ssl(cfg.sslmode)
-        # 앱 테이블은 스키마(기본 youtube) 우선, pg_trgm 등 확장 객체는 public에 있으므로 public 포함
-        _schema = (cfg.schema or "youtube").strip()
+        _schema = _validated_pg_schema(cfg.schema, "youtube")
         connect_args: dict[str, Any] = {
-            "server_settings": {"search_path": f"{_schema}, public"},
+            "server_settings": {"search_path": _schema},
             "ssl": ssl_arg if ssl_arg is not None else False,
         }
 
@@ -387,6 +493,22 @@ class DBEngineManager:
         # settings cache는 다음 호출에서 다시 읽도록 무효화
         get_youtube_settings_manager().invalidate("database")
 
+    async def apply_schema(self) -> None:
+        """
+        현재 루프의 엔진에 ensure_schema를 실행한다 (강제 재적용).
+        엔진이 캐시되어 있으면 재사용하고, 없으면 신규 생성 후 ensure_schema를 한 번만 호출한다.
+        """
+        loop = asyncio.get_running_loop()
+        cfg = get_youtube_settings_manager().get_database()
+        sig = _dsn_signature(cfg)
+
+        entry = self._engines.get(loop)
+        if entry is not None and entry[1] == sig:
+            await ensure_schema(entry[0])
+        else:
+            # 신규 생성: get_engine()이 내부적으로 ensure_schema를 호출한다.
+            await self.get_engine()
+
     async def test_connection_only(self) -> EngineHealth:
         """
         순수 연결 확인 전용. 스키마 생성을 실행하지 않는다.
@@ -402,7 +524,7 @@ class DBEngineManager:
             dsn = _build_async_dsn(cfg)
             ssl_arg = _asyncpg_ssl(cfg.sslmode)
             connect_args: dict[str, Any] = {
-                "server_settings": {"search_path": f"{cfg.schema or 'youtube'}, public"},
+                "server_settings": {"search_path": _validated_pg_schema(cfg.schema, "youtube")},
                 "ssl": ssl_arg if ssl_arg is not None else False,
             }
             tmp_engine = create_async_engine(

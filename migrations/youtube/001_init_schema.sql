@@ -140,3 +140,8 @@ CREATE TABLE IF NOT EXISTS youtube.job_logs (
 CREATE INDEX IF NOT EXISTS idx_joblogs_started ON youtube.job_logs(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_joblogs_status  ON youtube.job_logs(status);
 
+-- ── schema_migrations 기록 ──────────────────────────────────────────────────
+INSERT INTO youtube.schema_migrations (version, applied_at, description)
+VALUES (1, NOW(), 'init schema')
+ON CONFLICT (version) DO NOTHING;
+

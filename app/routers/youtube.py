@@ -983,15 +983,14 @@ async def test_database_connection():
 @router.post("/settings/database/apply_schema", response_model=SchemaApplyResponse)
 async def apply_database_schema():
     """PostgreSQL 스키마 마이그레이션 강제 실행."""
-    from app.services.youtube.db_engine import db_engine_manager, DBNotConfiguredError, ensure_schema
+    from app.services.youtube.db_engine import db_engine_manager, DBNotConfiguredError
 
     try:
-        engine = await db_engine_manager.get_engine()
-        await ensure_schema(engine)
+        await db_engine_manager.apply_schema()
         return SchemaApplyResponse(
             success=True,
             message="스키마 마이그레이션 완료",
-            migration_version="1",
+            migration_version="최신",
         )
     except DBNotConfiguredError as exc:
         return SchemaApplyResponse(success=False, message=f"미설정: {exc}")

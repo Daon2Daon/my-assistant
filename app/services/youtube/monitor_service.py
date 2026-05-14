@@ -14,7 +14,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Sequence
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -77,6 +77,29 @@ async def claim_pending_video_pks(session: AsyncSession, limit: int) -> List[int
     )
     rows = result.fetchall()
     return [int(r[0]) for r in rows]
+
+
+# 프로세스 크래시·잡 중단 등으로 claim 직후 DB에만 남은 오래된 processing 행을 pending으로 되돌림.
+STALE_PROCESSING_RESET_MINUTES = 180
+
+
+async def reset_stale_processing_videos(session: AsyncSession, stale_minutes: int) -> int:
+    """updated_at이 stale_minutes보다 오래된 processing 행을 pending으로 복구. 복구 건수 반환."""
+    if stale_minutes < 1:
+        return 0
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=stale_minutes)
+    stmt = (
+        update(YoutubeVideo)
+        .where(YoutubeVideo.analysis_status == "processing")
+        .where(YoutubeVideo.updated_at < cutoff)
+        .values(
+            analysis_status="pending",
+            analysis_error="[자동복구] 분석 중 상태가 비정상적으로 길어져 대기열로 되돌림",
+            updated_at=datetime.now(timezone.utc),
+        )
+    )
+    result = await session.execute(stmt)
+    return int(result.rowcount or 0)
 
 
 class MonitorService:
@@ -366,9 +389,15 @@ async def _youtube_pending_analysis_async() -> None:
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     batch_limit = 1
 
+    n_reset = 0
+    claimed: List[int] = []
     async with session_factory() as sess:
         async with sess.begin():
+            n_reset = await reset_stale_processing_videos(sess, STALE_PROCESSING_RESET_MINUTES)
             claimed = await claim_pending_video_pks(sess, batch_limit)
+
+    if n_reset:
+        print(f"♻️  YouTube: 오래된 분석중(processing) 영상 {n_reset}건을 pending으로 복구")
 
     if not claimed:
         return
@@ -437,24 +466,39 @@ async def _analyze_batch(
                                 channel_name=channel.channel_name if channel else "",
                                 published_at_str=video.published_at.isoformat(),
                             )
-
-                    await write_job_log(
-                        session_factory,
-                        job_type=_JOB_TYPE_VIDEO_ANALYZE,
-                        status=_STATUS_SUCCESS,
-                        message="분석 완료",
-                        duration_ms=timer.elapsed_ms,
-                        channel_pk=channel_pk,
-                        video_pk=video_pk,
-                    )
-
                 except Exception as e:
                     print(f"❌ 분석 실패 (video_pk={video_pk}): {e}")
+                    try:
+                        async with session_factory() as fail_sess:
+                            async with fail_sess.begin():
+                                await fail_sess.execute(
+                                    update(YoutubeVideo)
+                                    .where(YoutubeVideo.video_pk == video_pk)
+                                    .values(
+                                        analysis_status="failed",
+                                        analysis_error=str(e)[:500],
+                                        updated_at=datetime.now(timezone.utc),
+                                    )
+                                )
+                    except Exception as upd_exc:
+                        print(
+                            f"⚠️  분석 실패 상태 DB 기록 오류 (video_pk={video_pk}): {upd_exc}"
+                        )
                     await write_job_log(
                         session_factory,
                         job_type=_JOB_TYPE_VIDEO_ANALYZE,
                         status=_STATUS_FAIL,
                         message=str(e)[:500],
+                        duration_ms=timer.elapsed_ms,
+                        channel_pk=channel_pk,
+                        video_pk=video_pk,
+                    )
+                else:
+                    await write_job_log(
+                        session_factory,
+                        job_type=_JOB_TYPE_VIDEO_ANALYZE,
+                        status=_STATUS_SUCCESS,
+                        message="분석 완료",
                         duration_ms=timer.elapsed_ms,
                         channel_pk=channel_pk,
                         video_pk=video_pk,

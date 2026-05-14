@@ -3,8 +3,9 @@
 구글 로그인 및 Calendar API 연동
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
@@ -154,6 +155,27 @@ class GoogleAuthService:
         except Exception as e:
             raise Exception(f"구글 토큰 갱신 실패: {str(e)}")
 
+    def _kst_today_utc_bounds(self) -> Tuple[datetime, datetime]:
+        """
+        KST 기준 '오늘' 달력일의 [00:00, 다음날 00:00) 구간을 UTC aware datetime으로 반환.
+        Google Calendar events.list의 timeMax는 exclusive이므로 상한은 다음날 00:00 KST.
+        """
+        kst = ZoneInfo("Asia/Seoul")
+        now_kst = datetime.now(kst)
+        start_kst = now_kst.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_kst_exclusive = start_kst + timedelta(days=1)
+        return (
+            start_kst.astimezone(timezone.utc),
+            end_kst_exclusive.astimezone(timezone.utc),
+        )
+
+    @staticmethod
+    def _to_rfc3339_z(dt: datetime) -> str:
+        """timezone-aware datetime을 Calendar API용 RFC3339 UTC(Z) 문자열로 변환."""
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
     def get_calendar_events(
         self,
         credentials: Credentials,
@@ -166,8 +188,8 @@ class GoogleAuthService:
 
         Args:
             credentials: 구글 인증 정보
-            time_min: 조회 시작 시간 (기본: 오늘 00:00)
-            time_max: 조회 종료 시간 (기본: 오늘 23:59)
+            time_min: 조회 시작 시간 (기본: KST 달력 오늘 00:00에 해당하는 UTC 시각)
+            time_max: 조회 종료 상한 (기본: KST 다음날 00:00, API 규격상 exclusive)
             max_results: 최대 조회 개수
 
         Returns:
@@ -180,15 +202,22 @@ class GoogleAuthService:
             # Calendar API 서비스 생성
             service = build("calendar", "v3", credentials=credentials)
 
-            # 시간 범위 설정 (기본: 오늘)
-            if not time_min:
-                time_min = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-            if not time_max:
-                time_max = datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999)
+            # 시간 범위: 기본은 KST 달력 '오늘'
+            if not time_min or not time_max:
+                utc_min, utc_max = self._kst_today_utc_bounds()
+                if not time_min:
+                    time_min = utc_min
+                if not time_max:
+                    time_max = utc_max
 
-            # ISO 8601 형식으로 변환
-            time_min_str = time_min.isoformat() + "Z"
-            time_max_str = time_max.isoformat() + "Z"
+            if time_min.tzinfo is None:
+                time_min_str = time_min.isoformat() + "Z"
+            else:
+                time_min_str = self._to_rfc3339_z(time_min)
+            if time_max.tzinfo is None:
+                time_max_str = time_max.isoformat() + "Z"
+            else:
+                time_max_str = self._to_rfc3339_z(time_max)
 
             # 일정 조회
             events_result = (
@@ -293,8 +322,8 @@ class GoogleAuthService:
         Args:
             credentials: 구글 인증 정보
             calendar_ids: 조회할 캘린더 ID 리스트
-            time_min: 조회 시작 시간 (기본: 오늘 00:00)
-            time_max: 조회 종료 시간 (기본: 오늘 23:59)
+            time_min: 조회 시작 시간 (기본: KST 달력 오늘 00:00에 해당하는 UTC 시각)
+            time_max: 조회 종료 상한 (기본: KST 다음날 00:00, API 규격상 exclusive)
             max_results: 캘린더당 최대 조회 개수
 
         Returns:
@@ -311,15 +340,22 @@ class GoogleAuthService:
             # Calendar API 서비스 생성
             service = build("calendar", "v3", credentials=credentials)
 
-            # 시간 범위 설정 (기본: 오늘)
-            if not time_min:
-                time_min = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-            if not time_max:
-                time_max = datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999)
+            # 시간 범위: 기본은 KST 달력 '오늘'
+            if not time_min or not time_max:
+                utc_min, utc_max = self._kst_today_utc_bounds()
+                if not time_min:
+                    time_min = utc_min
+                if not time_max:
+                    time_max = utc_max
 
-            # ISO 8601 형식으로 변환
-            time_min_str = time_min.isoformat() + "Z"
-            time_max_str = time_max.isoformat() + "Z"
+            if time_min.tzinfo is None:
+                time_min_str = time_min.isoformat() + "Z"
+            else:
+                time_min_str = self._to_rfc3339_z(time_min)
+            if time_max.tzinfo is None:
+                time_max_str = time_max.isoformat() + "Z"
+            else:
+                time_max_str = self._to_rfc3339_z(time_max)
 
             # 각 캘린더별로 일정 조회
             results = {}

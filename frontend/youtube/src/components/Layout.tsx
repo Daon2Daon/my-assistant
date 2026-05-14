@@ -52,20 +52,20 @@ export default function Layout() {
         </div>
       )}
 
-      <div className="flex flex-1 max-w-7xl mx-auto w-full px-4 py-6 gap-6">
-        {/* 사이드바 */}
-        <aside className="w-52 shrink-0">
-          <div className="px-1 pb-3 mb-2 border-b border-gray-200">
+      <div className="flex flex-col lg:flex-row flex-1 max-w-7xl mx-auto w-full px-3 sm:px-4 py-4 sm:py-6 gap-4 lg:gap-6">
+        {/* 사이드바: 모바일에서는 상단 가로 스크롤, lg 이상에서 좌측 고정 폭 */}
+        <aside className="w-full lg:w-52 shrink-0 min-w-0">
+          <div className="px-1 pb-2 lg:pb-3 mb-2 border-b border-gray-200">
             <span className="text-sm font-bold text-gray-800">YouTube Monitor</span>
           </div>
-          <nav className="bg-white rounded-xl shadow-sm p-3 space-y-1 sticky top-6">
+          <nav className="flex flex-row lg:flex-col gap-1 overflow-x-auto lg:overflow-x-visible pb-1 lg:pb-0 -mx-1 px-1 lg:mx-0 lg:px-0 bg-white rounded-xl shadow-sm p-2 lg:p-3 lg:sticky lg:top-6">
             {NAV_ITEMS.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
                 end={item.end}
                 className={({ isActive }) =>
-                  `flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                  `flex shrink-0 items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors whitespace-nowrap lg:whitespace-normal ${
                     isActive
                       ? 'bg-blue-600 text-white font-medium'
                       : 'text-gray-700 hover:bg-gray-100'
@@ -80,7 +80,7 @@ export default function Layout() {
         </aside>
 
         {/* 메인 콘텐츠 */}
-        <main className="flex-1 min-w-0">
+        <main className="flex-1 min-w-0 w-full">
           <Outlet />
         </main>
       </div>

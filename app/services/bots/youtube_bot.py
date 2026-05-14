@@ -9,9 +9,9 @@ YouTube 모니터 알림 봇.
 
     <b>{headline}</b>
 
-    <i>{one_line}</i>
+    {full_analysis_md}  (HTML 이스케이프된 본문)
 
-    {short_summary_md}
+    {bullet_points}  (각 항목 • + 이스케이프)
 
     🏷 {tags_joined}
     📅 {published_at_kst}  ·  ⏱ {duration_human}
@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import html
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy import select, update
@@ -76,11 +76,25 @@ def _escape(s: str) -> str:
     return html.escape(s or "")
 
 
+def _format_bullet_points(bullet_points: Optional[Any]) -> str:
+    """JSONB bullet_points(문자열 리스트 등)를 Telegram HTML용 한 줄씩 포맷."""
+    if not bullet_points or not isinstance(bullet_points, list):
+        return ""
+    out: List[str] = []
+    for item in bullet_points:
+        if item is None:
+            continue
+        s = str(item).strip()
+        if s:
+            out.append(f"• {_escape(s)}")
+    return "\n".join(out)
+
+
 def build_notification_text(
     channel_name: str,
     headline: Optional[str],
-    one_line: str,
-    short_summary_md: str,
+    full_analysis_md: str,
+    bullet_points: Optional[Any],
     tags: List[str],
     published_at: datetime,
     duration_seconds: Optional[int],
@@ -103,11 +117,15 @@ def build_notification_text(
         lines.append(f"<b>{_escape(headline)}</b>")
         lines.append("")
 
-    lines.append(f"<i>{_escape(one_line)}</i>")
-    lines.append("")
+    body_analysis = _escape(full_analysis_md or "")
+    if body_analysis:
+        lines.append(body_analysis)
+        lines.append("")
 
-    lines.append(short_summary_md or "")
-    lines.append("")
+    body_bullets = _format_bullet_points(bullet_points)
+    if body_bullets:
+        lines.append(body_bullets)
+        lines.append("")
 
     if tags:
         lines.append(f"🏷 {', '.join(_escape(t) for t in tags)}")
@@ -123,26 +141,40 @@ def build_notification_text(
 
     text = "\n".join(lines)
 
-    # 4096자 초과 시 short_summary_md 절단
+    # 4096자 초과 시 본문(full_analysis_md) 절단 → 그래도 초과 시 bullet 항목 수 축소
     if len(text) > _TELEGRAM_MAX_LEN:
         overflow = len(text) - _TELEGRAM_MAX_LEN + 50
-        truncated_summary = _truncate_html(
-            short_summary_md,
-            max(0, len(short_summary_md) - overflow),
-            suffix=f'... <a href="{video_url}">(전체 보기)</a>',
-        )
-        return build_notification_text(
-            channel_name=channel_name,
-            headline=headline,
-            one_line=one_line,
-            short_summary_md=truncated_summary,
-            tags=tags,
-            published_at=published_at,
-            duration_seconds=duration_seconds,
-            video_url=video_url,
-            confidence_score=confidence_score,
-            low_confidence_threshold=low_confidence_threshold,
-        )
+        raw = full_analysis_md or ""
+        if len(raw) > 0:
+            cut = max(0, len(raw) - overflow)
+            truncated_raw = raw[:cut] + ("…" if cut < len(raw) else "")
+            return build_notification_text(
+                channel_name=channel_name,
+                headline=headline,
+                full_analysis_md=truncated_raw,
+                bullet_points=bullet_points,
+                tags=tags,
+                published_at=published_at,
+                duration_seconds=duration_seconds,
+                video_url=video_url,
+                confidence_score=confidence_score,
+                low_confidence_threshold=low_confidence_threshold,
+            )
+        b_list = bullet_points if isinstance(bullet_points, list) else []
+        if b_list:
+            return build_notification_text(
+                channel_name=channel_name,
+                headline=headline,
+                full_analysis_md="",
+                bullet_points=b_list[:-1],
+                tags=tags,
+                published_at=published_at,
+                duration_seconds=duration_seconds,
+                video_url=video_url,
+                confidence_score=confidence_score,
+                low_confidence_threshold=low_confidence_threshold,
+            )
+        return _truncate_html(text, _TELEGRAM_MAX_LEN)
 
     return text
 
@@ -189,8 +221,8 @@ class YoutubeBot:
         text = build_notification_text(
             channel_name=display_channel,
             headline=analysis.headline,
-            one_line=analysis.one_line,
-            short_summary_md=analysis.short_summary_md,
+            full_analysis_md=analysis.full_analysis_md or "",
+            bullet_points=analysis.bullet_points,
             tags=tags,
             published_at=video.published_at,
             duration_seconds=video.duration_seconds,

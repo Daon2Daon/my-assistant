@@ -116,27 +116,30 @@ export default function VideoDetail() {
   if (error) return <ErrorBanner message={error} onRetry={load} />
   if (!video) return null
 
+  const showTelegramPreview =
+    Boolean(video.headline || video.full_analysis_md || (video.bullet_points && video.bullet_points.length > 0))
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 max-w-3xl mx-auto w-full">
       {/* 상단 네비 */}
-      <div className="flex items-center gap-2 text-sm text-gray-500">
-        <Link to="/youtube/videos" className="hover:text-blue-600">영상 목록</Link>
-        <span>/</span>
-        <span className="text-gray-700 truncate max-w-xs">{video.title}</span>
+      <div className="flex items-center gap-2 text-sm text-gray-500 min-w-0">
+        <Link to="/youtube/videos" className="hover:text-blue-600 shrink-0">영상 목록</Link>
+        <span className="shrink-0">/</span>
+        <span className="text-gray-700 truncate min-w-0">{video.title}</span>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        {/* 좌측: 영상 정보 + 분석 결과 */}
-        <div className="xl:col-span-2 space-y-5">
-          {/* 영상 헤더 */}
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+      <div className="space-y-5">
+        {/* 영상 헤더 */}
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
             {video.thumbnail_url && (
               <img src={video.thumbnail_url} alt={video.title} className="w-full aspect-video object-cover" />
             )}
-            <div className="p-5 space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <h1 className="text-xl font-bold text-gray-900 leading-snug">{video.title}</h1>
-                <div className="flex gap-2 shrink-0">
+            <div className="p-4 sm:p-5 space-y-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <h1 className="text-lg sm:text-xl font-bold text-gray-900 leading-snug min-w-0 flex-1 order-2 sm:order-1">
+                  {video.title}
+                </h1>
+                <div className="flex flex-wrap gap-2 shrink-0 order-1 sm:order-2 sm:justify-end">
                   <a
                     href={video.video_url}
                     target="_blank"
@@ -251,9 +254,9 @@ export default function VideoDetail() {
 
           {/* 분석 결과 */}
           {video.full_analysis_md ? (
-            <div className="bg-white rounded-xl shadow-sm p-5">
+            <div className="bg-white rounded-xl shadow-sm p-4 sm:p-5">
               <h2 className="font-semibold text-gray-800 mb-4">상세 분석</h2>
-              <article className="prose prose-sm max-w-none text-gray-700">
+              <article className="prose prose-sm max-w-none text-gray-700 break-words overflow-x-auto">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{video.full_analysis_md}</ReactMarkdown>
               </article>
             </div>
@@ -263,95 +266,117 @@ export default function VideoDetail() {
               <p>분석이 진행 중입니다...</p>
             </div>
           ) : null}
-        </div>
 
-        {/* 우측: 요약 + 메타 정보 */}
-        <div className="space-y-4">
-          {/* 요약 카드 */}
-          {(video.headline || video.one_line || video.short_summary_md) && (
-            <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
-              <h2 className="font-semibold text-gray-800">요약</h2>
-              {video.headline && (
-                <p className="font-medium text-gray-900">{video.headline}</p>
-              )}
-              {video.one_line && (
-                <p className="text-sm text-gray-600 italic">{video.one_line}</p>
-              )}
-              {video.short_summary_md && (
-                <article className="prose prose-sm max-w-none text-gray-700">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{video.short_summary_md}</ReactMarkdown>
-                </article>
-              )}
-              {video.bullet_points && video.bullet_points.length > 0 && (
-                <ul className="space-y-1">
-                  {video.bullet_points.map((bp, i) => (
-                    <li key={i} className="flex gap-2 text-sm text-gray-700">
-                      <span className="text-blue-400 shrink-0">•</span>
-                      <span>{bp}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
+        {/* 상세 분석 아래: 요약 → 분석 정보 → Telegram 미리보기 → 오류 */}
+        {(video.headline ||
+          video.one_line ||
+          video.short_summary_md ||
+          (video.bullet_points && video.bullet_points.length > 0)) && (
+          <div className="bg-white rounded-xl shadow-sm p-4 sm:p-5 space-y-3">
+            <h2 className="font-semibold text-gray-800">요약</h2>
+            {video.headline && (
+              <p className="font-medium text-gray-900">{video.headline}</p>
+            )}
+            {video.one_line && (
+              <p className="text-sm text-gray-600 italic">{video.one_line}</p>
+            )}
+            {video.short_summary_md && (
+              <article className="prose prose-sm max-w-none text-gray-700 break-words">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{video.short_summary_md}</ReactMarkdown>
+              </article>
+            )}
+            {video.bullet_points && video.bullet_points.length > 0 && (
+              <ul className="space-y-1">
+                {video.bullet_points.map((bp, i) => (
+                  <li key={i} className="flex gap-2 text-sm text-gray-700">
+                    <span className="text-blue-400 shrink-0">•</span>
+                    <span className="min-w-0 break-words">{bp}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
-          {/* 분석 메타 */}
-          {(video.sentiment || video.confidence_score != null || video.model_name) && (
-            <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
-              <h2 className="font-semibold text-gray-800">분석 정보</h2>
-              {video.sentiment && (
+        {(video.sentiment || video.confidence_score != null || video.model_name) && (
+          <div className="bg-white rounded-xl shadow-sm p-4 sm:p-5 space-y-3">
+            <h2 className="font-semibold text-gray-800">분석 정보</h2>
+            {video.sentiment && (
+              <div className="flex justify-between gap-4 text-sm min-w-0">
+                <span className="text-gray-500 shrink-0">감성</span>
+                <span className="font-medium text-gray-700 text-right break-words">{video.sentiment}</span>
+              </div>
+            )}
+            {video.confidence_score != null && (
+              <div className="space-y-1">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">감성</span>
-                  <span className="font-medium text-gray-700">{video.sentiment}</span>
+                  <span className="text-gray-500">신뢰도</span>
                 </div>
-              )}
-              {video.confidence_score != null && (
-                <div className="space-y-1">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">신뢰도</span>
-                  </div>
-                  <ConfidenceBar score={video.confidence_score} />
-                </div>
-              )}
-              {video.model_name && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">모델</span>
-                  <span className="font-medium text-gray-700 text-xs">{video.model_name}</span>
-                </div>
-              )}
-              {video.analyzed_at && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">분석 시각</span>
-                  <span className="text-gray-700 text-xs">{dayjs(video.analyzed_at).format('MM/DD HH:mm')}</span>
-                </div>
-              )}
-            </div>
-          )}
+                <ConfidenceBar score={video.confidence_score} />
+              </div>
+            )}
+            {video.model_name && (
+              <div className="flex justify-between gap-4 text-sm min-w-0">
+                <span className="text-gray-500 shrink-0">모델</span>
+                <span className="font-medium text-gray-700 text-xs text-right break-all">{video.model_name}</span>
+              </div>
+            )}
+            {video.analyzed_at && (
+              <div className="flex justify-between gap-4 text-sm min-w-0">
+                <span className="text-gray-500 shrink-0">분석 시각</span>
+                <span className="text-gray-700 text-xs shrink-0">{dayjs(video.analyzed_at).format('MM/DD HH:mm')}</span>
+              </div>
+            )}
+          </div>
+        )}
 
-          {/* 알림 미리보기 패널 */}
-          {video.short_summary_md && (
-            <div className="bg-gray-800 rounded-xl p-4 text-gray-100 text-xs font-mono space-y-2">
-              <p className="text-gray-400 text-xs uppercase tracking-wide mb-2">Telegram 알림 미리보기</p>
-              <p className="font-bold">🎬 신규 영상</p>
-              {video.headline && <p className="font-semibold">{video.headline}</p>}
-              {video.one_line && <p className="italic text-gray-300">{video.one_line}</p>}
-              {video.tags.length > 0 && <p className="text-blue-300">🏷 {video.tags.slice(0, 5).join(', ')}</p>}
-              <p className="text-blue-400 underline">🔗 영상 보러가기</p>
-              {video.notified_at && (
-                <p className="text-green-400 mt-2">✅ 발송됨: {dayjs(video.notified_at).format('MM/DD HH:mm')}</p>
+        {showTelegramPreview && (
+          <div className="bg-gray-800 rounded-xl p-4 text-gray-100 text-xs space-y-2 break-words">
+            <p className="text-gray-400 text-xs uppercase tracking-wide mb-2">Telegram 알림 미리보기</p>
+            <p className="font-bold">
+              🎬 [{video.source_channel_name || '모니터 채널'}] 신규 영상
+            </p>
+            {video.headline && <p className="font-semibold">{video.headline}</p>}
+            {video.full_analysis_md && (
+              <div className="text-gray-200 whitespace-pre-wrap font-sans leading-relaxed max-h-48 overflow-y-auto border border-gray-600 rounded-lg p-2">
+                {video.full_analysis_md.length > 1200
+                  ? `${video.full_analysis_md.slice(0, 1200)}…`
+                  : video.full_analysis_md}
+              </div>
+            )}
+            {video.bullet_points && video.bullet_points.length > 0 && (
+              <ul className="space-y-1 font-sans">
+                {video.bullet_points.map((bp, i) => (
+                  <li key={i} className="text-gray-200">• {bp}</li>
+                ))}
+              </ul>
+            )}
+            {video.tags.length > 0 && (
+              <p className="text-blue-300">🏷 {video.tags.slice(0, 8).join(', ')}</p>
+            )}
+            <p className="text-gray-400 text-[11px]">
+              📅 {dayjs(video.published_at).format('YYYY-MM-DD HH:mm')}
+              {video.duration_seconds != null && (
+                <>
+                  {' '}
+                  · ⏱ {Math.floor(video.duration_seconds / 60)}분 {video.duration_seconds % 60}초
+                </>
               )}
-            </div>
-          )}
+            </p>
+            <p className="text-blue-400 underline">🔗 영상 보러가기</p>
+            {video.notified_at && (
+              <p className="text-green-400 mt-2">✅ 발송됨: {dayjs(video.notified_at).format('MM/DD HH:mm')}</p>
+            )}
+          </div>
+        )}
 
-          {/* 오류 정보 */}
-          {video.analysis_error && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-xs text-red-700 space-y-1">
-              <p className="font-semibold">분석 오류</p>
-              <p className="font-mono whitespace-pre-wrap">{video.analysis_error}</p>
-              <p className="text-gray-500">재시도: {video.retry_count}회</p>
-            </div>
-          )}
-        </div>
+        {video.analysis_error && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-xs text-red-700 space-y-1 break-words">
+            <p className="font-semibold">분석 오류</p>
+            <p className="font-mono whitespace-pre-wrap">{video.analysis_error}</p>
+            <p className="text-gray-500">재시도: {video.retry_count}회</p>
+          </div>
+        )}
       </div>
     </div>
   )

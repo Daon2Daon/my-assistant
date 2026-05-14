@@ -16,6 +16,9 @@ import time
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.models.youtube_channel import YoutubeChannel
+from app.models.youtube_video import YoutubeVideo
+
 
 def _app_log_youtube_batch(status: str, message: str) -> None:
     try:
@@ -35,7 +38,6 @@ async def _youtube_scheduled_notify_async() -> None:
     from app.services.youtube.db_engine import db_engine_manager
     from app.services.youtube.settings_manager import get_youtube_settings_manager
     from app.services.bots.youtube_bot import youtube_bot
-    from app.models.youtube_video import YoutubeVideo
 
     mgr = get_youtube_settings_manager()
     notif_cfg = mgr.get_notification()
@@ -56,12 +58,14 @@ async def _youtube_scheduled_notify_async() -> None:
 
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
-    # 미발송 · 분석완료 영상 video_pk 목록 조회 (오래된 영상부터)
+    # 미발송·분석완료 영상 video_pk 조회 (notify_enabled=True 채널만, 오래된 영상부터)
     async with session_factory() as sess:
         stmt = (
             select(YoutubeVideo.video_pk)
+            .join(YoutubeChannel, YoutubeVideo.channel_pk == YoutubeChannel.channel_pk)
             .where(YoutubeVideo.analysis_status == "done")
             .where(YoutubeVideo.notified_at.is_(None))
+            .where(YoutubeChannel.notify_enabled.is_(True))
             .order_by(YoutubeVideo.published_at.asc())
         )
         result = await sess.execute(stmt)
@@ -93,13 +97,11 @@ async def _youtube_scheduled_notify_async() -> None:
 
     for i, pk in enumerate(video_pks):
         try:
-            async with session_factory() as sess:
-                async with sess.begin():
-                    ok = await youtube_bot.notify(
-                        session=sess,
-                        video_pk=pk,
-                        low_confidence_threshold=threshold,
-                    )
+            ok = await youtube_bot.notify_standalone(
+                session_factory=session_factory,
+                video_pk=pk,
+                low_confidence_threshold=threshold,
+            )
             if ok:
                 sent += 1
         except Exception as exc:

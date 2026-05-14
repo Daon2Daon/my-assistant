@@ -70,6 +70,10 @@ class SchedulerService:
         minute: int,
         args: Optional[tuple] = None,
         replace_existing: bool = True,
+        *,
+        misfire_grace_time: Optional[int] = None,
+        max_instances: Optional[int] = None,
+        coalesce: Optional[bool] = None,
     ):
         """
         정기 작업(Cron) 등록
@@ -82,16 +86,27 @@ class SchedulerService:
             minute: 분 (0-59)
             args: 함수 인자
             replace_existing: 기존 Job 교체 여부
+            misfire_grace_time: 트리거 시각 이후 이 시간(초) 안이면 실행 허용 (None이면 APScheduler 기본)
+            max_instances: 동시 실행 상한 (None이면 스케줄러 job_defaults)
+            coalesce: 누락분 병합 여부 (None이면 스케줄러 job_defaults)
         """
         trigger = CronTrigger(hour=hour, minute=minute)
 
-        self.scheduler.add_job(
-            func,
-            trigger=trigger,
-            id=job_id,
-            args=args or (),
-            replace_existing=replace_existing,
-        )
+        job_kwargs: dict = {
+            "func": func,
+            "trigger": trigger,
+            "id": job_id,
+            "args": args or (),
+            "replace_existing": replace_existing,
+        }
+        if misfire_grace_time is not None:
+            job_kwargs["misfire_grace_time"] = misfire_grace_time
+        if max_instances is not None:
+            job_kwargs["max_instances"] = max_instances
+        if coalesce is not None:
+            job_kwargs["coalesce"] = coalesce
+
+        self.scheduler.add_job(**job_kwargs)
 
         print(f"📅 Cron Job 등록: {job_id} - 매일 {hour:02d}:{minute:02d}")
 
@@ -618,11 +633,17 @@ class SchedulerService:
             hour, minute = int(m.group(1)), int(m.group(2))
             job_id = f"youtube_notify_{hour:02d}{minute:02d}"
             try:
+                # 예약발송은 한 회차당 최대 5건×건별 대기 등으로 수 분 걸릴 수 있어,
+                # 기본 misfire_grace_time(초단위)에서는 다른 잡이 스레드를 점유할 때 슬롯이 통째로 스킵되기 쉽다.
+                # 동일 슬롯 중복 실행 방지(max_instances=1), 누락분은 한 번으로 합침(coalesce=True).
                 self.add_cron_job(
                     func=youtube_scheduled_notify_sync,
                     job_id=job_id,
                     hour=hour,
                     minute=minute,
+                    misfire_grace_time=3600,
+                    max_instances=1,
+                    coalesce=True,
                 )
                 print(f"✅ YouTube 예약발송 Job 등록: {job_id} ({hour:02d}:{minute:02d})")
             except Exception as e:

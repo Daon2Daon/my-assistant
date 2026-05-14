@@ -3,11 +3,31 @@
 Telegram Bot API를 사용한 메시지 발송
 """
 
+import asyncio
 import os
+from typing import Dict, Optional
+
 import httpx
-from typing import Optional, Dict
-from app.models import User
+
 from app.config import settings
+from app.models import User
+
+
+def _telegram_retry_after_sec(response: httpx.Response) -> Optional[float]:
+    """Telegram 429 응답의 parameters.retry_after(초)를 추출. 없으면 None."""
+    try:
+        payload = response.json()
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    params = payload.get("parameters")
+    if isinstance(params, dict) and "retry_after" in params:
+        try:
+            return float(params["retry_after"])
+        except (TypeError, ValueError):
+            return None
+    return None
 
 
 class TelegramSender:
@@ -100,15 +120,57 @@ class TelegramSender:
                 "parse_mode": "HTML",  # HTML 포맷 지원
             }
 
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(url, json=data)
+            # 긴 요약·네트워크 지연 대비 타임아웃 여유, 429/5xx·일시 오류 시 소수 재시도
+            timeout = httpx.Timeout(60.0, connect=15.0)
+            max_attempts = 4
+            backoff_sec = (1.0, 3.0, 8.0)
 
-                if response.status_code == 200:
-                    print(f"✅ 텔레그램 메시지 발송 성공 (user_id: {user.user_id})")
-                    return True
-                else:
-                    print(f"❌ 텔레그램 메시지 발송 실패: {response.status_code} - {response.text}")
+            for attempt in range(max_attempts):
+                try:
+                    async with httpx.AsyncClient(timeout=timeout) as client:
+                        response = await client.post(url, json=data)
+
+                    if response.status_code == 200:
+                        print(f"✅ 텔레그램 메시지 발송 성공 (user_id: {user.user_id})")
+                        return True
+
+                    retry_after = _telegram_retry_after_sec(response)
+                    if response.status_code == 429 and attempt < max_attempts - 1:
+                        wait = retry_after if retry_after is not None else backoff_sec[attempt]
+                        print(
+                            f"⚠️ 텔레그램 rate limit(429), {wait:.1f}s 후 재시도 "
+                            f"({attempt + 1}/{max_attempts})"
+                        )
+                        await asyncio.sleep(wait)
+                        continue
+
+                    if response.status_code >= 500 and attempt < max_attempts - 1:
+                        wait = backoff_sec[min(attempt, len(backoff_sec) - 1)]
+                        print(
+                            f"⚠️ 텔레그램 서버 오류({response.status_code}), {wait:.1f}s 후 재시도 "
+                            f"({attempt + 1}/{max_attempts})"
+                        )
+                        await asyncio.sleep(wait)
+                        continue
+
+                    print(
+                        f"❌ 텔레그램 메시지 발송 실패: {response.status_code} - {response.text}"
+                    )
                     return False
+
+                except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
+                    if attempt < max_attempts - 1:
+                        wait = backoff_sec[min(attempt, len(backoff_sec) - 1)]
+                        print(
+                            f"⚠️ 텔레그램 전송 일시 오류 ({type(e).__name__}), {wait:.1f}s 후 재시도 "
+                            f"({attempt + 1}/{max_attempts})"
+                        )
+                        await asyncio.sleep(wait)
+                        continue
+                    print(f"❌ 텔레그램 메시지 발송 실패: {e}")
+                    return False
+
+            return False
 
         except Exception as e:
             print(f"❌ 텔레그램 메시지 발송 실패: {e}")

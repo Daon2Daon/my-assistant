@@ -1339,8 +1339,9 @@ def update_notification_settings(body: NotificationSettingsUpdate, db=Depends(_s
     # 예약발송 잡 재구성
     try:
         from app.services.scheduler import scheduler_service
+
         scheduler_service.update_youtube_notify_jobs()
     except Exception:
-        pass
+        logger.exception("YouTube 예약발송 스케줄 잡 갱신 실패")
 
     return _notification_response()

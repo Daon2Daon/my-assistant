@@ -84,6 +84,11 @@ def _escape(s: str) -> str:
     return html.escape(s or "")
 
 
+def _escape_href(url: str) -> str:
+    """href=\"...\" 안에 넣을 URL용 이스케이프 (&, 따옴표 등). Telegram HTML 파서 오류 방지."""
+    return html.escape((url or "").strip(), quote=True)
+
+
 def _format_bullet_points(bullet_points: Optional[Any]) -> str:
     """JSONB bullet_points(문자열 리스트 등)를 Telegram HTML용 한 줄씩 포맷."""
     if not bullet_points or not isinstance(bullet_points, list):
@@ -145,7 +150,7 @@ def build_notification_text(
     lines.append("  ·  ".join(meta_parts))
     lines.append("")
 
-    lines.append(f'🔗 <a href="{video_url}">영상 보러가기</a>')
+    lines.append(f'🔗 <a href="{_escape_href(video_url)}">영상 보러가기</a>')
 
     text = "\n".join(lines)
 

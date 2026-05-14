@@ -86,6 +86,23 @@ def test_build_notification_text_no_badge_above_threshold():
     assert "저신뢰도" not in text
 
 
+def test_build_notification_text_escapes_ampersand_in_video_url():
+    """YouTube URL 쿼리의 & 가 href 속성을 깨뜨리지 않도록 이스케이프."""
+    url = "https://www.youtube.com/watch?v=abc&list=PLtest&index=1"
+    text = build_notification_text(
+        channel_name="채널",
+        headline=None,
+        full_analysis_md="짧은 본문",
+        bullet_points=None,
+        tags=[],
+        published_at=_pub(),
+        duration_seconds=None,
+        video_url=url,
+    )
+    assert 'href="https://www.youtube.com/watch?v=abc&amp;list=PLtest&amp;index=1"' in text
+    assert "watch?v=abc" in text
+
+
 def test_build_notification_text_truncates_long_body():
     long_body = "A" * 4000
     text = build_notification_text(

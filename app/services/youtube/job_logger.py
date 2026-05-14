@@ -1,7 +1,7 @@
 """
 YouTube job_logs 테이블 기록 헬퍼.
 
-각 작업(채널 모니터링, 영상 분석, 게이트웨이 헬스)이 완료될 때
+각 작업(채널 모니터링, 영상 분석, 게이트웨이 헬스, 텔레그램 알림 등)이 완료될 때
 youtube.job_logs에 한 행씩 INSERT합니다.
 """
 
@@ -12,13 +12,15 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 _JOB_TYPE_CHANNEL_POLL = "channel_poll"
 _JOB_TYPE_VIDEO_ANALYZE = "video_analyze"
 _JOB_TYPE_VIDEO_REANALYZE = "video_reanalyze"
 _JOB_TYPE_GATEWAY_HEALTH = "gateway_health"
 _JOB_TYPE_NOTIFY = "notify"
+# 외부 모듈에서 import 가능한 공개 상수 (텔레그램 발송 등)
+JOB_TYPE_NOTIFY = _JOB_TYPE_NOTIFY
 
 _STATUS_SUCCESS = "success"
 _STATUS_FAIL = "fail"

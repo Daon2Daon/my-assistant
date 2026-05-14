@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import time
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 
@@ -35,6 +36,13 @@ from app.models.youtube_video import YoutubeVideo
 from app.models.youtube_video_analysis import YoutubeVideoAnalysis
 from app.models.youtube_video_tag import YoutubeVideoTag
 from app.services.notification.telegram_sender import telegram_sender
+from app.services.youtube.job_logger import (
+    JOB_TYPE_NOTIFY,
+    write_job_log,
+    _STATUS_FAIL,
+    _STATUS_SKIP,
+    _STATUS_SUCCESS,
+)
 
 # Telegram 메시지 최대 글자 수
 _TELEGRAM_MAX_LEN = 4096
@@ -179,6 +187,49 @@ def build_notification_text(
     return text
 
 
+def _app_log_youtube_notify(status: str, message: str) -> None:
+    """SQLite 앱 로그(`logs` 테이블). 텔레그램 발송 성공/실패만 기록(스킵은 job_logs만)."""
+    try:
+        from app.database import SessionLocal
+        from app.crud import create_log
+
+        db = SessionLocal()
+        try:
+            create_log(db, "youtube", status, message[:500])
+        finally:
+            db.close()
+    except Exception as exc:
+        print(f"⚠️  Youtube 앱 로그 기록 실패: {exc}")
+
+
+async def _write_notify_job_log(
+    session: AsyncSession,
+    *,
+    channel_pk: Optional[int],
+    video_pk: Optional[int],
+    status: str,
+    message: str,
+    duration_ms: int,
+) -> None:
+    """PostgreSQL `youtube.job_logs` (job_type=notify)."""
+    try:
+        bind = session.bind
+        if bind is None:
+            return
+        factory = async_sessionmaker(bind, expire_on_commit=False)
+        await write_job_log(
+            factory,
+            job_type=JOB_TYPE_NOTIFY,
+            status=status,
+            message=message,
+            duration_ms=duration_ms,
+            channel_pk=channel_pk,
+            video_pk=video_pk,
+        )
+    except Exception as exc:
+        print(f"⚠️  YoutubeBot notify job_log 기록 실패: {exc}")
+
+
 class YoutubeBot:
     """YouTube 영상 알림 발송 봇."""
 
@@ -193,17 +244,46 @@ class YoutubeBot:
         - notified_at이 이미 있으면 재발송 없이 True 반환
         - 발송 성공 시 videos.notified_at 갱신
         """
+        t0 = time.monotonic()
+
+        def elapsed_ms() -> int:
+            return int((time.monotonic() - t0) * 1000)
+
         # video + detail + summary + tags 조회
         video = await self._fetch_video(session, video_pk)
         if not video:
             print(f"⚠️  YoutubeBot: video_pk={video_pk} 를 찾을 수 없습니다.")
+            await _write_notify_job_log(
+                session,
+                channel_pk=None,
+                video_pk=video_pk,
+                status=_STATUS_FAIL,
+                message="영상 행 없음",
+                duration_ms=elapsed_ms(),
+            )
             return False
 
         if video.notified_at is not None:
+            await _write_notify_job_log(
+                session,
+                channel_pk=video.channel_pk,
+                video_pk=video_pk,
+                status=_STATUS_SKIP,
+                message="이미 발송됨 (notified_at)",
+                duration_ms=elapsed_ms(),
+            )
             return True  # 이미 발송됨
 
         channel = await self._fetch_channel(session, video.channel_pk)
         if channel and not channel.notify_enabled:
+            await _write_notify_job_log(
+                session,
+                channel_pk=video.channel_pk,
+                video_pk=video_pk,
+                status=_STATUS_SKIP,
+                message="채널 알림 비활성 (notify_enabled)",
+                duration_ms=elapsed_ms(),
+            )
             return False  # 채널 알림 비활성화 (가상 채널 포함)
 
         analysis = await self._fetch_analysis(session, video_pk)
@@ -211,6 +291,14 @@ class YoutubeBot:
 
         if not analysis:
             print(f"⚠️  YoutubeBot: video_pk={video_pk} 분석 결과 없음 — 발송 skip")
+            await _write_notify_job_log(
+                session,
+                channel_pk=video.channel_pk,
+                video_pk=video_pk,
+                status=_STATUS_SKIP,
+                message="분석 결과 없음",
+                duration_ms=elapsed_ms(),
+            )
             return False
 
         # source_channel_name이 있으면 실제 채널명 사용 (추가 영상)
@@ -234,14 +322,48 @@ class YoutubeBot:
         user = await self._get_user(session)
         if not user or not telegram_sender.is_available(user):
             print("⚠️  YoutubeBot: Telegram chat_id 없음 — 발송 skip")
+            await _write_notify_job_log(
+                session,
+                channel_pk=video.channel_pk,
+                video_pk=video_pk,
+                status=_STATUS_SKIP,
+                message="Telegram chat_id 없음",
+                duration_ms=elapsed_ms(),
+            )
             return False
 
         ok = await telegram_sender.send_message(user, text)
+        title_hint = (video.title or "")[:120]
         if ok:
             await session.execute(
                 update(YoutubeVideo)
                 .where(YoutubeVideo.video_pk == video_pk)
                 .values(notified_at=datetime.now(timezone.utc))
+            )
+            await _write_notify_job_log(
+                session,
+                channel_pk=video.channel_pk,
+                video_pk=video_pk,
+                status=_STATUS_SUCCESS,
+                message=f"Telegram 발송 완료: {title_hint}",
+                duration_ms=elapsed_ms(),
+            )
+            _app_log_youtube_notify(
+                "SUCCESS",
+                f"Telegram 발송 완료 video_pk={video_pk} · {title_hint}",
+            )
+        else:
+            await _write_notify_job_log(
+                session,
+                channel_pk=video.channel_pk,
+                video_pk=video_pk,
+                status=_STATUS_FAIL,
+                message=f"Telegram sendMessage 실패: {title_hint}",
+                duration_ms=elapsed_ms(),
+            )
+            _app_log_youtube_notify(
+                "FAIL",
+                f"Telegram 발송 실패 video_pk={video_pk} · {title_hint}",
             )
         return ok
 

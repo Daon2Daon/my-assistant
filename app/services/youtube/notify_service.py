@@ -11,9 +11,24 @@ PostgreSQL에서 분석 완료·미발송 영상을 조회해 순차적으로 Te
 from __future__ import annotations
 
 import asyncio
+import time
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
+
+
+def _app_log_youtube_batch(status: str, message: str) -> None:
+    try:
+        from app.database import SessionLocal
+        from app.crud import create_log
+
+        db = SessionLocal()
+        try:
+            create_log(db, "youtube", status, message[:500])
+        finally:
+            db.close()
+    except Exception as exc:
+        print(f"⚠️  Youtube 앱 로그(예약발송 회차) 기록 실패: {exc}")
 
 
 async def _youtube_scheduled_notify_async() -> None:
@@ -74,6 +89,7 @@ async def _youtube_scheduled_notify_async() -> None:
         f"{f', 잔여 미발송 약 {remaining}건은 다음 회차' if remaining > 0 else ''})"
     )
     sent = 0
+    t_batch = time.monotonic()
 
     for i, pk in enumerate(video_pks):
         try:
@@ -93,6 +109,30 @@ async def _youtube_scheduled_notify_async() -> None:
             await asyncio.sleep(wait_sec)
 
     print(f"✅ youtube_scheduled_notify: {sent}/{len(video_pks)}건 발송 완료 (이번 회차)")
+
+    from app.services.youtube.job_logger import (
+        JOB_TYPE_NOTIFY,
+        _STATUS_FAIL,
+        _STATUS_SUCCESS,
+        write_job_log,
+    )
+
+    batch_ms = int((time.monotonic() - t_batch) * 1000)
+    batch_msg = (
+        f"예약발송 회차: {sent}/{len(video_pks)}건 성공"
+        + (f", 잔여 대기 약 {remaining}건" if remaining else "")
+    )
+    await write_job_log(
+        session_factory,
+        job_type=JOB_TYPE_NOTIFY,
+        status=_STATUS_SUCCESS if sent > 0 else _STATUS_FAIL,
+        message=batch_msg,
+        duration_ms=batch_ms,
+    )
+    _app_log_youtube_batch(
+        "SUCCESS" if sent > 0 else "FAIL",
+        f"youtube_scheduled_notify: {batch_msg}",
+    )
 
 
 def youtube_scheduled_notify_sync() -> None:

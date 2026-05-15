@@ -595,14 +595,45 @@ class SchedulerService:
 
     def update_youtube_master_poll_job(self):
         """
-        polling 주기 변경 시 YouTube 관련 interval 잡 재등록.
+        polling 주기 변경 시 YouTube 폴링/분석 interval 잡만 재등록.
+        notify 잡은 별도로 update_youtube_notify_jobs()에서 관리한다.
         """
+        from app.services.youtube.monitor_service import (
+            youtube_master_poll_sync,
+            youtube_pending_analysis_sync,
+        )
+        try:
+            from app.services.youtube.settings_manager import get_youtube_settings_manager
+            mgr = get_youtube_settings_manager()
+            polling_cfg = mgr.get_polling()
+            poll_interval_min = int(polling_cfg.master_interval_min or 12)
+            analysis_interval_min = int(polling_cfg.pending_analysis_interval_min or poll_interval_min)
+        except Exception:
+            poll_interval_min = 12
+            analysis_interval_min = 12
+
         try:
             self.remove_job("youtube_master_poll")
-            self.remove_job("youtube_pending_analysis")
-            self.setup_youtube_jobs()
+            self.add_interval_job(
+                func=youtube_master_poll_sync,
+                job_id="youtube_master_poll",
+                minutes=poll_interval_min,
+            )
+            print(f"✅ YouTube 마스터 폴링 Job 재등록: {poll_interval_min}분마다 실행")
         except Exception as e:
-            print(f"❌ YouTube 폴링/분석 Job 업데이트 실패: {e}")
+            print(f"❌ YouTube 마스터 폴링 Job 업데이트 실패: {e}")
+
+        try:
+            self.remove_job("youtube_pending_analysis")
+            self.add_interval_job(
+                func=youtube_pending_analysis_sync,
+                job_id="youtube_pending_analysis",
+                minutes=analysis_interval_min,
+                max_instances=1,
+            )
+            print(f"✅ YouTube 미분석 배치 분석 Job 재등록: {analysis_interval_min}분마다 실행")
+        except Exception as e:
+            print(f"❌ YouTube 미분석 배치 분석 Job 업데이트 실패: {e}")
 
     def setup_youtube_notify_jobs(self):
         """

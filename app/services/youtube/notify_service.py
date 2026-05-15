@@ -71,8 +71,24 @@ async def _youtube_scheduled_notify_async() -> None:
         result = await sess.execute(stmt)
         all_pending_pks = list(result.scalars().all())
 
+        # 진단: notify_enabled=FALSE인 채널의 미발송 영상 수도 함께 확인
+        diag_stmt = (
+            select(YoutubeVideo.video_pk)
+            .join(YoutubeChannel, YoutubeVideo.channel_pk == YoutubeChannel.channel_pk)
+            .where(YoutubeVideo.analysis_status == "done")
+            .where(YoutubeVideo.notified_at.is_(None))
+            .where(YoutubeChannel.notify_enabled.is_(False))
+        )
+        diag_result = await sess.execute(diag_stmt)
+        disabled_pks = list(diag_result.scalars().all())
+        if disabled_pks:
+            print(
+                f"ℹ️  youtube_scheduled_notify: 알림 비활성 채널 미발송 영상 {len(disabled_pks)}건 존재"
+                " (채널 notify_enabled=FALSE) — 발송 제외"
+            )
+
     if not all_pending_pks:
-        print("ℹ️  youtube_scheduled_notify: 미발송 영상 없음")
+        print("ℹ️  youtube_scheduled_notify: 미발송 영상 없음 (notify_enabled=TRUE 채널 기준)")
         return
 
     max_per = int(notif_cfg.scheduled_max_per_run or 5)

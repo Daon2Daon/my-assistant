@@ -360,8 +360,16 @@ class SettingsManager:
         return self._get_cached("notification", load)
 
 
-def get_youtube_settings_manager() -> SettingsManager:
-    """앱 기본 SessionLocal + config Fernet 키로 매니저 생성."""
-    from app.database import SessionLocal
+_manager_singleton: SettingsManager | None = None
 
-    return SettingsManager(session_factory=SessionLocal, fernet_key=None, cache_ttl_sec=60.0)
+
+def get_youtube_settings_manager() -> SettingsManager:
+    """앱 기본 SessionLocal + config Fernet 키로 매니저 반환 (싱글톤)."""
+    global _manager_singleton
+    if _manager_singleton is None:
+        from app.database import SessionLocal
+
+        _manager_singleton = SettingsManager(
+            session_factory=SessionLocal, fernet_key=None, cache_ttl_sec=60.0
+        )
+    return _manager_singleton

@@ -27,7 +27,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy import select, update
 
 from app.models.youtube_channel import YoutubeChannel
@@ -46,8 +46,6 @@ from app.services.youtube.job_logger import (
 
 # Telegram 메시지 최대 글자 수
 _TELEGRAM_MAX_LEN = 4096
-# 발송 대기 기본값 (초) — settings 없을 때 fallback
-_DEFAULT_WAIT_SEC = 30
 
 
 def _to_kst(dt: datetime) -> str:
@@ -158,9 +156,10 @@ def build_notification_text(
     if len(text) > _TELEGRAM_MAX_LEN:
         overflow = len(text) - _TELEGRAM_MAX_LEN + 50
         raw = full_analysis_md or ""
-        if len(raw) > 0:
-            cut = max(0, len(raw) - overflow)
-            truncated_raw = raw[:cut] + ("…" if cut < len(raw) else "")
+        # raw를 실제로 줄일 수 있을 때만 재귀 (cut == 0이면 루프 방지를 위해 skip)
+        if len(raw) > overflow:
+            cut = len(raw) - overflow
+            truncated_raw = raw[:cut] + "…"
             return build_notification_text(
                 channel_name=channel_name,
                 headline=headline,
@@ -208,7 +207,6 @@ def _app_log_youtube_notify(status: str, message: str) -> None:
 
 
 async def _write_notify_job_log(
-    _session_unused,  # SQLAlchemy 2.x에서 session.bind 제거됨 — 호환성 유지용
     *,
     channel_pk: Optional[int],
     video_pk: Optional[int],
@@ -216,11 +214,7 @@ async def _write_notify_job_log(
     message: str,
     duration_ms: int,
 ) -> None:
-    """PostgreSQL `youtube.job_logs` (job_type=notify).
-
-    SQLAlchemy 2.x에서 AsyncSession.bind가 제거됐으므로,
-    db_engine_manager를 통해 직접 엔진을 얻어 새 세션으로 기록한다.
-    """
+    """PostgreSQL `youtube.job_logs` (job_type=notify)."""
     try:
         from app.services.youtube.db_engine import db_engine_manager
 
@@ -270,7 +264,6 @@ class YoutubeBot:
                 if not video:
                     print(f"⚠️  YoutubeBot: video_pk={video_pk} 를 찾을 수 없습니다.")
                     await _write_notify_job_log(
-                        None,
                         channel_pk=None, video_pk=video_pk,
                         status=_STATUS_FAIL, message="영상 행 없음",
                         duration_ms=elapsed_ms(),
@@ -279,7 +272,6 @@ class YoutubeBot:
 
                 if video.notified_at is not None:
                     await _write_notify_job_log(
-                        None,
                         channel_pk=video.channel_pk, video_pk=video_pk,
                         status=_STATUS_SKIP, message="이미 발송됨 (notified_at)",
                         duration_ms=elapsed_ms(),
@@ -289,7 +281,6 @@ class YoutubeBot:
                 channel = await self._fetch_channel(sess, video.channel_pk)
                 if channel and not channel.notify_enabled:
                     await _write_notify_job_log(
-                        None,
                         channel_pk=video.channel_pk, video_pk=video_pk,
                         status=_STATUS_SKIP, message="채널 알림 비활성 (notify_enabled)",
                         duration_ms=elapsed_ms(),
@@ -300,7 +291,6 @@ class YoutubeBot:
                 if not analysis:
                     print(f"⚠️  YoutubeBot: video_pk={video_pk} 분석 결과 없음 — 발송 skip")
                     await _write_notify_job_log(
-                        None,
                         channel_pk=video.channel_pk, video_pk=video_pk,
                         status=_STATUS_SKIP, message="분석 결과 없음",
                         duration_ms=elapsed_ms(),
@@ -343,11 +333,10 @@ class YoutubeBot:
             low_confidence_threshold=low_confidence_threshold,
         )
 
-        user = await self._get_user(None)
+        user = await self._get_user()
         if not user or not telegram_sender.is_available(user):
             print("⚠️  YoutubeBot: Telegram chat_id 없음 — 발송 skip")
             await _write_notify_job_log(
-                None,
                 channel_pk=video_data["channel_pk"], video_pk=video_pk,
                 status=_STATUS_SKIP, message="Telegram chat_id 없음",
                 duration_ms=elapsed_ms(),
@@ -370,7 +359,6 @@ class YoutubeBot:
                         .values(notified_at=datetime.now(timezone.utc))
                     )
                     await _write_notify_job_log(
-                        None,
                         channel_pk=channel_pk_val, video_pk=video_pk,
                         status=_STATUS_SUCCESS,
                         message=f"Telegram 발송 완료: {title_hint}",
@@ -382,7 +370,6 @@ class YoutubeBot:
                     )
                 else:
                     await _write_notify_job_log(
-                        None,
                         channel_pk=channel_pk_val, video_pk=video_pk,
                         status=_STATUS_FAIL,
                         message=f"Telegram sendMessage 실패: {title_hint}",
@@ -394,164 +381,6 @@ class YoutubeBot:
                     )
 
         return ok
-
-    async def notify(
-        self,
-        session: AsyncSession,
-        video_pk: int,
-        low_confidence_threshold: float = 0.5,
-    ) -> bool:
-        """
-        단건 영상 알림 발송.
-        - notified_at이 이미 있으면 재발송 없이 True 반환
-        - 발송 성공 시 videos.notified_at 갱신
-        """
-        t0 = time.monotonic()
-
-        def elapsed_ms() -> int:
-            return int((time.monotonic() - t0) * 1000)
-
-        # video + detail + summary + tags 조회
-        video = await self._fetch_video(session, video_pk)
-        if not video:
-            print(f"⚠️  YoutubeBot: video_pk={video_pk} 를 찾을 수 없습니다.")
-            await _write_notify_job_log(
-                session,
-                channel_pk=None,
-                video_pk=video_pk,
-                status=_STATUS_FAIL,
-                message="영상 행 없음",
-                duration_ms=elapsed_ms(),
-            )
-            return False
-
-        if video.notified_at is not None:
-            await _write_notify_job_log(
-                session,
-                channel_pk=video.channel_pk,
-                video_pk=video_pk,
-                status=_STATUS_SKIP,
-                message="이미 발송됨 (notified_at)",
-                duration_ms=elapsed_ms(),
-            )
-            return True  # 이미 발송됨
-
-        channel = await self._fetch_channel(session, video.channel_pk)
-        if channel and not channel.notify_enabled:
-            await _write_notify_job_log(
-                session,
-                channel_pk=video.channel_pk,
-                video_pk=video_pk,
-                status=_STATUS_SKIP,
-                message="채널 알림 비활성 (notify_enabled)",
-                duration_ms=elapsed_ms(),
-            )
-            return False  # 채널 알림 비활성화 (가상 채널 포함)
-
-        analysis = await self._fetch_analysis(session, video_pk)
-        tags = await self._fetch_tag_names(session, video_pk)
-
-        if not analysis:
-            print(f"⚠️  YoutubeBot: video_pk={video_pk} 분석 결과 없음 — 발송 skip")
-            await _write_notify_job_log(
-                session,
-                channel_pk=video.channel_pk,
-                video_pk=video_pk,
-                status=_STATUS_SKIP,
-                message="분석 결과 없음",
-                duration_ms=elapsed_ms(),
-            )
-            return False
-
-        # source_channel_name이 있으면 실제 채널명 사용 (추가 영상)
-        display_channel = (
-            video.source_channel_name
-            or (channel.channel_name if channel else "YouTube")
-        )
-        text = build_notification_text(
-            channel_name=display_channel,
-            headline=analysis.headline,
-            full_analysis_md=analysis.full_analysis_md or "",
-            bullet_points=analysis.bullet_points,
-            tags=tags,
-            published_at=video.published_at,
-            duration_seconds=video.duration_seconds,
-            video_url=video.video_url,
-            confidence_score=analysis.confidence_score,
-            low_confidence_threshold=low_confidence_threshold,
-        )
-
-        user = await self._get_user(session)
-        if not user or not telegram_sender.is_available(user):
-            print("⚠️  YoutubeBot: Telegram chat_id 없음 — 발송 skip")
-            await _write_notify_job_log(
-                session,
-                channel_pk=video.channel_pk,
-                video_pk=video_pk,
-                status=_STATUS_SKIP,
-                message="Telegram chat_id 없음",
-                duration_ms=elapsed_ms(),
-            )
-            return False
-
-        ok = await telegram_sender.send_message(user, text)
-        title_hint = (video.title or "")[:120]
-        if ok:
-            await session.execute(
-                update(YoutubeVideo)
-                .where(YoutubeVideo.video_pk == video_pk)
-                .values(notified_at=datetime.now(timezone.utc))
-            )
-            await _write_notify_job_log(
-                session,
-                channel_pk=video.channel_pk,
-                video_pk=video_pk,
-                status=_STATUS_SUCCESS,
-                message=f"Telegram 발송 완료: {title_hint}",
-                duration_ms=elapsed_ms(),
-            )
-            _app_log_youtube_notify(
-                "SUCCESS",
-                f"Telegram 발송 완료 video_pk={video_pk} · {title_hint}",
-            )
-        else:
-            await _write_notify_job_log(
-                session,
-                channel_pk=video.channel_pk,
-                video_pk=video_pk,
-                status=_STATUS_FAIL,
-                message=f"Telegram sendMessage 실패: {title_hint}",
-                duration_ms=elapsed_ms(),
-            )
-            _app_log_youtube_notify(
-                "FAIL",
-                f"Telegram 발송 실패 video_pk={video_pk} · {title_hint}",
-            )
-        return ok
-
-    async def notify_batch(
-        self,
-        session: AsyncSession,
-        video_pks: List[int],
-        wait_between_sec: int = _DEFAULT_WAIT_SEC,
-        low_confidence_threshold: float = 0.5,
-    ) -> int:
-        """
-        복수 영상 순차 발송. 채널 간 wait_between_sec 초 대기.
-        반환값: 성공 건수
-        """
-        sent = 0
-        for i, pk in enumerate(video_pks):
-            ok = await self.notify(
-                session=session,
-                video_pk=pk,
-                low_confidence_threshold=low_confidence_threshold,
-            )
-            if ok:
-                sent += 1
-            if i < len(video_pks) - 1:
-                await asyncio.sleep(wait_between_sec)
-        return sent
 
     # ── 내부 조회 헬퍼 ──────────────────────────────────────────────────────
 
@@ -590,7 +419,7 @@ class YoutubeBot:
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
-    async def _get_user(self, session):
+    async def _get_user(self):
         from app.database import SessionLocal
         from app.crud import get_or_create_user
 

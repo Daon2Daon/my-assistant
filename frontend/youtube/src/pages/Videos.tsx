@@ -6,6 +6,7 @@ import type { Video, Channel, Tag } from '../api/client'
 import Spinner from '../components/Spinner'
 import ErrorBanner from '../components/ErrorBanner'
 import StatusBadge from '../components/StatusBadge'
+import NotifyBadge from '../components/NotifyBadge'
 import Pagination from '../components/Pagination'
 
 function formatDuration(sec: number | null) {
@@ -145,13 +146,11 @@ export default function Videos() {
                 )}
                 <div className="flex items-center gap-2 flex-wrap">
                   <StatusBadge status={v.analysis_status} />
+                  <NotifyBadge analysisStatus={v.analysis_status} notifiedAt={v.notified_at} />
                   {v.source_channel_name && (
                     <span className="text-xs text-purple-600 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full">
                       추가 · {v.source_channel_name}
                     </span>
-                  )}
-                  {v.notified_at && (
-                    <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">알림 발송</span>
                   )}
                 </div>
                 <div className="flex items-center gap-3 text-xs text-gray-400">

@@ -90,70 +90,151 @@ class WeatherBot:
             print(f"❌ 예보 조회 실패: {e}")
             return None
 
-    async def get_daily_min_max(self, city: str = "Seoul") -> Optional[Dict]:
+    async def get_coords(self, city: str) -> Optional[tuple[float, float]]:
         """
-        하루의 최저/최고 온도를 Forecast API에서 계산
-        - 오늘 데이터가 있으면 오늘 하루 사용
-        - 오늘 데이터가 없으면 (저녁/밤) 내일 하루 사용
-
-        Args:
-            city: 도시명
+        도시명을 위경도로 변환 (OWM Geocoding API 사용).
 
         Returns:
-            Dict: {"temp_min": float, "temp_max": float, "date": str} 또는 None
+            (lat, lon) 또는 None
         """
         try:
+            url = "https://api.openweathermap.org/geo/1.0/direct"
+            params = {"q": city, "limit": 1, "appid": self.api_key}
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url, params=params)
+            if resp.status_code != 200 or not resp.json():
+                return None
+            data = resp.json()[0]
+            return data["lat"], data["lon"]
+        except Exception as e:
+            print(f"⚠️  Geocoding 실패 ({city}): {e}")
+            return None
+
+    async def get_daily_min_max(self, city: str = "Seoul") -> Optional[Dict]:
+        """
+        하루 최저/최고 기온 조회.
+
+        [1순위] One Call API 3.0 — daily[0].temp.min/max (가장 정확한 일별 예보)
+        [2순위] Forecast API 3시간 예보 폴백
+          - 각 구간의 temp_min/temp_max 를 집계해 일별 범위를 계산
+          - 오늘 구간이 1개 이상 있으면 오늘 날짜 데이터 사용
+          - 오늘 구간이 없으면 내일 데이터 사용 (저녁 이후 발송 시)
+
+        Returns:
+            Dict: {"temp_min": float, "temp_max": float, "date": str, "source": str}
+        """
+        result = await self._get_daily_min_max_onecall(city)
+        if result:
+            return result
+        return await self._get_daily_min_max_forecast(city)
+
+    async def _get_daily_min_max_onecall(self, city: str) -> Optional[Dict]:
+        """One Call API 3.0으로 일별 최저/최고 조회."""
+        try:
+            coords = await self.get_coords(city)
+            if not coords:
+                return None
+            lat, lon = coords
+
+            url = "https://api.openweathermap.org/data/3.0/onecall"
+            params = {
+                "lat": lat,
+                "lon": lon,
+                "exclude": "current,minutely,hourly,alerts",
+                "appid": self.api_key,
+                "units": "metric",
+            }
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(url, params=params)
+
+            if resp.status_code != 200:
+                print(f"⚠️  One Call API 응답 오류 {resp.status_code} — Forecast API로 폴백")
+                return None
+
+            daily = resp.json().get("daily", [])
+            if not daily:
+                return None
+
+            today_data = daily[0]
+            temp_min = today_data["temp"]["min"]
+            temp_max = today_data["temp"]["max"]
+            now = datetime.now(ZoneInfo("Asia/Seoul"))
+            print(
+                f"🌡️  One Call API: 오늘 최저 {temp_min:.1f}°C / 최고 {temp_max:.1f}°C"
+                f" (lat={lat:.4f}, lon={lon:.4f})"
+            )
+            return {
+                "temp_min": temp_min,
+                "temp_max": temp_max,
+                "date": now.strftime("%Y-%m-%d"),
+                "source": "onecall",
+            }
+
+        except Exception as e:
+            print(f"⚠️  One Call API 호출 실패: {e}")
+            return None
+
+    async def _get_daily_min_max_forecast(self, city: str) -> Optional[Dict]:
+        """Forecast API 3시간 예보에서 일별 최저/최고를 계산."""
+        try:
             forecast_data = await self.get_forecast(city)
-            
             if not forecast_data:
                 return None
 
             now = datetime.now(ZoneInfo("Asia/Seoul"))
             today = now.date()
-            
-            # 날짜별로 온도 데이터 수집
-            daily_temps = {}  # {date: [temps]}
+
+            # 날짜별로 (temp_min 목록, temp_max 목록) 수집
+            # temp_min/temp_max는 각 3시간 구간의 범위값으로
+            # 단일 temp 포인트보다 정확한 일별 범위를 얻을 수 있음
+            daily_mins: Dict = {}
+            daily_maxs: Dict = {}
 
             for item in forecast_data.get("list", []):
-                # 예보 시간을 서울 시간대로 변환
                 forecast_dt = datetime.fromtimestamp(
                     item["dt"], tz=ZoneInfo("Asia/Seoul")
                 )
                 forecast_date = forecast_dt.date()
-                temp = item["main"]["temp"]
-                
-                # 날짜별로 온도 수집
-                if forecast_date not in daily_temps:
-                    daily_temps[forecast_date] = []
-                daily_temps[forecast_date].append(temp)
+                main = item["main"]
+                t_min = main.get("temp_min", main["temp"])
+                t_max = main.get("temp_max", main["temp"])
 
-            # 오늘 데이터가 있는지 확인
-            if today in daily_temps and len(daily_temps[today]) >= 3:
-                # 오늘 데이터가 충분하면 (최소 3개 이상) 오늘 사용
-                temps = daily_temps[today]
+                if forecast_date not in daily_mins:
+                    daily_mins[forecast_date] = []
+                    daily_maxs[forecast_date] = []
+                daily_mins[forecast_date].append(t_min)
+                daily_maxs[forecast_date].append(t_max)
+
+            # 오늘 구간이 1개라도 있으면 오늘 사용 (>= 3 임계값 제거)
+            if today in daily_mins:
                 target_date = today
             else:
-                # 오늘 데이터가 없거나 부족하면 다음날 사용
                 from datetime import timedelta
                 tomorrow = today + timedelta(days=1)
-                if tomorrow in daily_temps:
-                    temps = daily_temps[tomorrow]
+                if tomorrow in daily_mins:
+                    print(
+                        f"⚠️  오늘({today}) Forecast 구간 없음 — 내일({tomorrow}) 데이터 사용"
+                    )
                     target_date = tomorrow
                 else:
                     return None
 
-            # 최저/최고 계산
-            if temps:
-                return {
-                    "temp_min": min(temps),
-                    "temp_max": max(temps),
-                    "date": target_date.strftime("%Y-%m-%d")
-                }
-            
-            return None
+            temp_min = min(daily_mins[target_date])
+            temp_max = max(daily_maxs[target_date])
+            count = len(daily_mins[target_date])
+            print(
+                f"🌡️  Forecast API 폴백: {target_date} 구간 {count}개"
+                f" → 최저 {temp_min:.1f}°C / 최고 {temp_max:.1f}°C"
+            )
+            return {
+                "temp_min": temp_min,
+                "temp_max": temp_max,
+                "date": target_date.strftime("%Y-%m-%d"),
+                "source": "forecast",
+            }
 
         except Exception as e:
-            print(f"❌ 최저/최고 온도 계산 실패: {e}")
+            print(f"❌ Forecast API 최저/최고 계산 실패: {e}")
             return None
 
     def format_weather_message(

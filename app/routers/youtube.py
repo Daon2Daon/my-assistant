@@ -607,7 +607,6 @@ async def _trigger_reanalyze(video_pk: int, custom_prompt: Optional[str] = None)
         elapsed_ms = int((time.monotonic() - start) * 1000)
         print(f"⚠️  재분석 실패 (video_pk={video_pk}): {exc}")
         try:
-            from app.services.youtube.db_engine import db_engine_manager
             engine = await db_engine_manager.get_engine()
             factory = async_sessionmaker(engine, expire_on_commit=False)
             async with factory() as sess:

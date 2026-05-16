@@ -584,9 +584,9 @@ class SchedulerService:
             self.add_interval_job(
                 func=youtube_gateway_health_sync,
                 job_id="youtube_gateway_health",
-                minutes=5,
+                minutes=30,
             )
-            print("✅ YouTube Gateway 헬스체크 Job 등록: 5분마다 실행")
+            print("✅ YouTube Gateway 헬스체크 Job 등록: 30분마다 실행")
         except Exception as e:
             print(f"❌ YouTube Gateway 헬스체크 Job 등록 실패: {e}")
 

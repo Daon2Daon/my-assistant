@@ -124,7 +124,7 @@ export default function DatabaseSettings() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">PostgreSQL 연결 설정</h1>
+        <h1 className="text-2xl font-bold text-gray-900">DB</h1>
         {data && (
           <span className={`px-3 py-1 rounded-full text-xs font-medium ${data.is_configured ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
             {data.is_configured ? '설정됨' : '미설정'}

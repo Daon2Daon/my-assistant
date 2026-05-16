@@ -1,19 +1,22 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { healthApi } from '../api/client'
 
-const NAV_ITEMS = [
+const MAIN_NAV = [
   { to: '/youtube/', label: '대시보드', icon: '🏠', end: true },
   { to: '/youtube/channels', label: '채널 관리', icon: '📺' },
   { to: '/youtube/videos', label: '영상 목록', icon: '🎬' },
-  { to: '/youtube/instant-analyze', label: '추가 영상 분석', icon: '🔍' },
+  { to: '/youtube/instant-analyze', label: '영상 분석', icon: '🔍' },
   { to: '/youtube/tags', label: '태그 클라우드', icon: '🏷' },
-  { to: '/youtube/jobs', label: '잡 로그', icon: '📋' },
-  { to: '/youtube/settings/database', label: 'DB 설정', icon: '🗄' },
+  { to: '/youtube/jobs', label: 'Logs', icon: '📋' },
+]
+
+const SETTINGS_NAV = [
+  { to: '/youtube/settings/database', label: 'DB', icon: '🗄' },
   { to: '/youtube/settings/ai-gateway', label: 'AI Gateway', icon: '🤖' },
-  { to: '/youtube/settings/runtime', label: '모니터링 설정', icon: '⚙️' },
+  { to: '/youtube/settings/runtime', label: '모니터링', icon: '⚙️' },
   { to: '/youtube/settings/notification', label: '알림 발송', icon: '🔔' },
-  { to: '/youtube/settings/prompts', label: '프롬프트 설정', icon: '📝' },
+  { to: '/youtube/settings/prompts', label: '프롬프트', icon: '📝' },
 ]
 
 type HealthState = 'unknown' | 'ok' | 'error'
@@ -21,6 +24,14 @@ type HealthState = 'unknown' | 'ok' | 'error'
 export default function Layout() {
   const [dbHealth, setDbHealth] = useState<HealthState>('unknown')
   const [dbMsg, setDbMsg] = useState('')
+  const location = useLocation()
+  const isOnSettings = location.pathname.startsWith('/youtube/settings')
+  const [settingsOpen, setSettingsOpen] = useState(isOnSettings)
+
+  // 설정 페이지 진입 시 자동 펼침
+  useEffect(() => {
+    if (isOnSettings) setSettingsOpen(true)
+  }, [isOnSettings])
 
   const checkHealth = async () => {
     try {
@@ -38,6 +49,11 @@ export default function Layout() {
     const id = setInterval(checkHealth, 60_000)
     return () => clearInterval(id)
   }, [])
+
+  const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+    `flex shrink-0 items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors whitespace-nowrap lg:whitespace-normal ${
+      isActive ? 'bg-blue-600 text-white font-medium' : 'text-gray-700 hover:bg-gray-100'
+    }`
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -59,23 +75,54 @@ export default function Layout() {
             <span className="text-sm font-bold text-gray-800">YouTube Monitor</span>
           </div>
           <nav className="flex flex-row lg:flex-col gap-1 overflow-x-auto lg:overflow-x-visible pb-1 lg:pb-0 -mx-1 px-1 lg:mx-0 lg:px-0 bg-white rounded-xl shadow-sm p-2 lg:p-3 lg:sticky lg:top-6">
-            {NAV_ITEMS.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                className={({ isActive }) =>
-                  `flex shrink-0 items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors whitespace-nowrap lg:whitespace-normal ${
-                    isActive
-                      ? 'bg-blue-600 text-white font-medium'
-                      : 'text-gray-700 hover:bg-gray-100'
-                  }`
-                }
-              >
+            {/* 메인 메뉴 */}
+            {MAIN_NAV.map((item) => (
+              <NavLink key={item.to} to={item.to} end={item.end} className={navLinkClass}>
                 <span>{item.icon}</span>
                 <span>{item.label}</span>
               </NavLink>
             ))}
+
+            {/* 설정 섹션 */}
+            <div className="flex flex-row lg:flex-col gap-1 lg:border-t lg:border-gray-100 lg:mt-1 lg:pt-1">
+              {/* 설정 토글 버튼 */}
+              <button
+                onClick={() => setSettingsOpen((v) => !v)}
+                className={`flex shrink-0 items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors whitespace-nowrap lg:whitespace-normal w-full text-left ${
+                  isOnSettings
+                    ? 'text-blue-600 font-medium'
+                    : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <span>⚙️</span>
+                <span className="flex-1">Settings</span>
+                <svg
+                  className={`w-3.5 h-3.5 shrink-0 transition-transform hidden lg:block ${settingsOpen ? 'rotate-180' : ''}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2.5}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {/* 설정 하위 메뉴 */}
+              {settingsOpen && SETTINGS_NAV.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={({ isActive }) =>
+                    `flex shrink-0 items-center gap-2 px-3 lg:pl-7 py-2 rounded-lg text-sm transition-colors whitespace-nowrap lg:whitespace-normal ${
+                      isActive ? 'bg-blue-600 text-white font-medium' : 'text-gray-500 hover:bg-gray-100'
+                    }`
+                  }
+                >
+                  <span>{item.icon}</span>
+                  <span>{item.label}</span>
+                </NavLink>
+              ))}
+            </div>
           </nav>
         </aside>
 

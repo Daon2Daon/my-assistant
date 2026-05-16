@@ -158,7 +158,7 @@ export default function AIGatewaySettings() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl font-bold text-gray-900">AI Gateway 설정</h1>
+      <h1 className="text-2xl font-bold text-gray-900">AI Gateway</h1>
       <p className="text-sm text-gray-500">litellm Gateway 주소, API 키, 사용 모델을 설정합니다.</p>
 
       {/* 연결 테스트 결과 */}

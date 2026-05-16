@@ -77,7 +77,8 @@ async function loadModuleSummary() {
 
         // Load reminders count
         const remindersData = await fetchApi('/api/reminders');
-        const pendingCount = remindersData.reminders.filter(r => !r.is_sent).length;
+        const remindersList = Array.isArray(remindersData) ? remindersData : (remindersData.reminders || []);
+        const pendingCount = remindersList.filter(r => !r.is_sent).length;
 
         const remindersCountEl = document.getElementById('reminders-count');
         if (remindersCountEl) {
@@ -87,6 +88,31 @@ async function loadModuleSummary() {
 
     } catch (error) {
         console.error('Failed to load module summary:', error);
+    }
+
+    // Load YouTube status (별도 try-catch: PG 미설정 시에도 다른 모듈에 영향 없도록)
+    try {
+        const youtubeStats = await fetchApi('/api/youtube/stats');
+        const statusEl = document.getElementById('youtube-active-status');
+        if (statusEl) {
+            const pending = (youtubeStats.analyzed_videos || 0) - (youtubeStats.notified_videos || 0);
+            if (pending > 0) {
+                statusEl.className = 'badge bg-warning';
+                statusEl.textContent = `발송 대기 ${pending}건`;
+            } else if (youtubeStats.active_channels > 0) {
+                statusEl.className = 'badge bg-success';
+                statusEl.textContent = 'Active';
+            } else {
+                statusEl.className = 'badge bg-secondary';
+                statusEl.textContent = 'Inactive';
+            }
+        }
+    } catch (error) {
+        const statusEl = document.getElementById('youtube-active-status');
+        if (statusEl) {
+            statusEl.className = 'badge bg-secondary';
+            statusEl.textContent = 'Inactive';
+        }
     }
 }
 

@@ -90,7 +90,7 @@ export default function InstantAnalyze() {
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">추가 영상 분석</h1>
+        <h1 className="text-2xl font-bold text-gray-900">영상 분석</h1>
         <p className="mt-1 text-sm text-gray-500">
           채널 등록 없이 YouTube URL을 직접 입력해 분석합니다.
         </p>

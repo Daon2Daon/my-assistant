@@ -33,6 +33,7 @@ export default function Channels() {
   const [deleteTarget, setDeleteTarget] = useState<Channel | null>(null)
   const [pollingPk, setPollingPk] = useState<number | null>(null)
   const [savingPollPk, setSavingPollPk] = useState<number | null>(null)
+  const [savingCategoryPk, setSavingCategoryPk] = useState<number | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -105,6 +106,26 @@ export default function Channels() {
       alert((e as Error).message)
     } finally {
       setPollingPk(null)
+    }
+  }
+
+  const handleCategoryBlur = async (
+    ch: Channel,
+    raw: string,
+    inputEl: HTMLInputElement
+  ) => {
+    const value = raw.trim()
+    const current = ch.category ?? ''
+    if (value === current) return
+    setSavingCategoryPk(ch.channel_pk)
+    try {
+      const updated = await channelApi.update(ch.channel_pk, { category: value || null })
+      setChannels((prev) => prev.map((c) => (c.channel_pk === ch.channel_pk ? updated : c)))
+    } catch (e) {
+      alert((e as Error).message)
+      inputEl.value = current
+    } finally {
+      setSavingCategoryPk(null)
     }
   }
 
@@ -241,7 +262,10 @@ export default function Channels() {
                 <th className="text-left px-4 py-3 font-medium text-gray-600">채널</th>
                 <th className="text-center px-3 py-3 font-medium text-gray-600">활성</th>
                 <th className="text-center px-3 py-3 font-medium text-gray-600">알림</th>
-                <th className="text-left px-3 py-3 font-medium text-gray-600">카테고리</th>
+                <th className="text-left px-3 py-3 font-medium text-gray-600">
+                  카테고리
+                  <span className="block text-[10px] font-normal text-gray-400 normal-case">포커스 해제 시 저장</span>
+                </th>
                 <th className="text-right px-3 py-3 font-medium text-gray-600">
                   모니터링(분)
                   <span className="block text-[10px] font-normal text-gray-400 normal-case">포커스 해제 시 저장</span>
@@ -270,7 +294,18 @@ export default function Channels() {
                   <td className="text-center px-3 py-3">
                     <ToggleSwitch checked={ch.notify_enabled} onChange={() => handleToggleNotify(ch)} />
                   </td>
-                  <td className="px-3 py-3 text-gray-500">{ch.category ?? '-'}</td>
+                  <td className="px-3 py-3">
+                    <input
+                      type="text"
+                      placeholder="-"
+                      disabled={savingCategoryPk === ch.channel_pk}
+                      key={`${ch.channel_pk}-category-${ch.category}`}
+                      defaultValue={ch.category ?? ''}
+                      onBlur={(e) => handleCategoryBlur(ch, e.target.value, e.target)}
+                      className="w-28 border border-gray-200 rounded px-2 py-1 text-sm text-gray-800 placeholder-gray-300 disabled:opacity-50"
+                      title="값을 바꾼 뒤 다른 곳을 클릭하면 저장됩니다"
+                    />
+                  </td>
                   <td className="text-right px-3 py-3">
                     <input
                       type="number"

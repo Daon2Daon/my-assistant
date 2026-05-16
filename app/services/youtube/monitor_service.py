@@ -442,6 +442,7 @@ async def _analyze_batch(
         async with sem:
             timer = JobTimer()
             channel_pk: Optional[int] = None
+            video_title: Optional[str] = None
             with timer:
                 try:
                     async with session_factory() as sess:
@@ -451,6 +452,7 @@ async def _analyze_batch(
                             video = result.scalar_one_or_none()
                             if not video:
                                 return
+                            video_title = video.title
 
                             ch_stmt = select(YoutubeChannel).where(
                                 YoutubeChannel.channel_pk == video.channel_pk
@@ -498,7 +500,7 @@ async def _analyze_batch(
                         session_factory,
                         job_type=_JOB_TYPE_VIDEO_ANALYZE,
                         status=_STATUS_SUCCESS,
-                        message="분석 완료",
+                        message=f"분석 완료 - {video_title}" if video_title else "분석 완료",
                         duration_ms=timer.elapsed_ms,
                         channel_pk=channel_pk,
                         video_pk=video_pk,
@@ -522,7 +524,7 @@ def youtube_master_poll_sync() -> None:
 
 
 async def _youtube_gateway_health_async() -> None:
-    """litellm Gateway 헬스체크 (5분 주기)."""
+    """litellm Gateway 헬스체크 (30분 주기, 실패 시에만 로그 기록)."""
     try:
         engine = await db_engine_manager.get_engine()
     except Exception:
@@ -542,15 +544,7 @@ async def _youtube_gateway_health_async() -> None:
                 return
             client = get_litellm_client(settings=ai_cfg)
             await client.get_models(force_refresh=True)
-
-            if session_factory:
-                await write_job_log(
-                    session_factory,
-                    job_type=_JOB_TYPE_GATEWAY_HEALTH,
-                    status=_STATUS_SUCCESS,
-                    message="Gateway 응답 정상",
-                    duration_ms=timer.elapsed_ms,
-                )
+            # 정상 시에는 로그 미기록 (실패 시에만 기록)
         except Exception as e:
             print(f"⚠️  YouTube Gateway 헬스체크 실패: {e}")
             if session_factory:

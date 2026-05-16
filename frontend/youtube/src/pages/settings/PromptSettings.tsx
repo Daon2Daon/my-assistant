@@ -88,7 +88,7 @@ export default function PromptSettings() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">분석 프롬프트 설정</h1>
+          <h1 className="text-2xl font-bold text-gray-900">프롬프트</h1>
           <p className="text-sm text-gray-500 mt-1">
             영상 분석 시 LLM에 전달할 기본 프롬프트를 수정합니다.
             버전: <span className="font-mono text-blue-600">{data?.prompt_version}</span>

@@ -233,7 +233,7 @@ export default function NotificationSettings() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl font-bold text-gray-900">알림 발송 설정</h1>
+      <h1 className="text-2xl font-bold text-gray-900">알림 발송</h1>
       <p className="text-sm text-gray-500">
         Telegram 발송 모드와 예약 일정을 설정합니다.
       </p>

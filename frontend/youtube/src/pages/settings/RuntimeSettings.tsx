@@ -125,7 +125,7 @@ export default function RuntimeSettings() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl font-bold text-gray-900">모니터링 설정</h1>
+      <h1 className="text-2xl font-bold text-gray-900">모니터링</h1>
       <p className="text-sm text-gray-500">
         채널 모니터링과 AI 배치 분석을 나누어 설정합니다. Telegram 알림·즉시/예약 발송은{' '}
         <Link to="/youtube/settings/notification" className="text-blue-600 hover:underline font-medium">
@@ -166,7 +166,7 @@ export default function RuntimeSettings() {
         {/* 하위: 채널 모니터링 */}
         <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
           <div className="border-b pb-2">
-            <h2 className="font-semibold text-gray-800">모니터링 설정 — 채널 모니터링</h2>
+            <h2 className="font-semibold text-gray-800">채널 모니터링</h2>
             <p className="text-xs text-gray-500 mt-1">
               마스터 스케줄이 깨어날 때마다 &quot;폴링 시각이 된&quot; 채널만 조회하여 신규 영상을 DB에 등록합니다.
             </p>
@@ -223,7 +223,7 @@ export default function RuntimeSettings() {
         {/* 하위: AI 배치 분석 */}
         <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
           <div className="border-b pb-2">
-            <h2 className="font-semibold text-gray-800">모니터링 설정 — AI 배치 분석</h2>
+            <h2 className="font-semibold text-gray-800">AI 배치 분석</h2>
             <p className="text-xs text-gray-500 mt-1">
               설정한 <strong>시간 간격(분)</strong>마다 백엔드 스케줄이 실행되며, 실행마다 DB의 미분석(pending) 영상 <strong>1건</strong>만
               선정하여 AI 분석 및 결과 DB 반영을 수행합니다. 긴 분석이 겹치지 않도록 동시 스케줄 인스턴스는 1개로 제한됩니다.

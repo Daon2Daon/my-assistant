@@ -241,6 +241,7 @@ class YoutubeBot:
         session_factory: async_sessionmaker,
         video_pk: int,
         low_confidence_threshold: float = 0.5,
+        force: bool = False,
     ) -> bool:
         """DB 트랜잭션과 Telegram 네트워크 호출을 분리한 단건 발송.
 
@@ -249,6 +250,7 @@ class YoutubeBot:
         Phase 3 (트랜잭션): notified_at 갱신 및 job_log 기록
 
         기존 notify(session, ...) 대비 DB 커넥션 점유 시간을 대폭 줄인다.
+        force=True 이면 이미 발송된 영상도 재발송한다 (수동 발송용).
         """
         t0 = time.monotonic()
 
@@ -270,7 +272,7 @@ class YoutubeBot:
                     )
                     return False
 
-                if video.notified_at is not None:
+                if video.notified_at is not None and not force:
                     await _write_notify_job_log(
                         channel_pk=video.channel_pk, video_pk=video_pk,
                         status=_STATUS_SKIP, message="이미 발송됨 (notified_at)",
@@ -437,10 +439,12 @@ async def notify_video_callback(video_pk: int) -> None:
     """
     AnalysisPipeline의 notify_callback으로 주입할 함수.
     - 즉시발송(immediate) 모드: 분석 직후 즉시 Telegram 발송.
+      - 알림 제한 시간(quiet hours) 활성화 시: 제한 시간 동안 발송 보류
+        (제한 종료 시각에 플러시 잡이 일괄 발송)
     - 예약발송(scheduled) 모드: 발송하지 않고 반환 (예약잡이 일괄 처리).
     """
     from app.services.youtube.db_engine import db_engine_manager
-    from app.services.youtube.settings_manager import get_youtube_settings_manager
+    from app.services.youtube.settings_manager import get_youtube_settings_manager, is_quiet_hours_now
 
     mgr = get_youtube_settings_manager()
     notif_cfg = mgr.get_notification()
@@ -450,6 +454,19 @@ async def notify_video_callback(video_pk: int) -> None:
 
     if notif_cfg.send_mode == "scheduled":
         print(f"ℹ️  notify_video_callback: 예약발송 모드 — video_pk={video_pk} 발송 보류")
+        return
+
+    # 즉시발송 모드에서 알림 제한 시간 체크
+    if is_quiet_hours_now(
+        notif_cfg.quiet_hours_enabled,
+        notif_cfg.quiet_hours_start,
+        notif_cfg.quiet_hours_end,
+    ):
+        print(
+            f"ℹ️  notify_video_callback: 알림 제한 시간 중 "
+            f"({notif_cfg.quiet_hours_start}~{notif_cfg.quiet_hours_end} KST) "
+            f"— video_pk={video_pk} 발송 보류 (종료 시 플러시 잡이 발송)"
+        )
         return
 
     try:

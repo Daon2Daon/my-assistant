@@ -39,6 +39,8 @@ from app.schemas.youtube import (
     StatsResponse,
     TagResponse,
     VideoDetailResponse,
+    VideoNotifyRequest,
+    VideoNotifyResponse,
     VideoResponse,
     VideoSummaryEmbed,
 )
@@ -62,6 +64,7 @@ from app.schemas.youtube_settings import (
     SchemaApplyResponse,
 )
 from app.models.youtube_channel import YoutubeChannel
+from app.models.youtube_deleted_video import YoutubeDeletedVideo
 from app.models.youtube_job_log import YoutubeJobLog
 from app.models.youtube_tag import YoutubeTag
 from app.models.youtube_video import YoutubeVideo
@@ -507,6 +510,106 @@ async def get_video_detail(
         model_name=analysis.model_name if analysis else None,
         analyzed_at=analysis.analyzed_at if analysis else None,
         tags=tags,
+    )
+
+
+@router.delete("/videos/{video_pk}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_video(
+    video_pk: int,
+    session: AsyncSession = Depends(get_pg_session),
+):
+    """영상 삭제 (CASCADE — analysis / video_tags 연관 데이터 삭제).
+
+    삭제된 video_id는 deleted_videos 테이블에 보관되어 채널 재폴링 시 재추가를 방지합니다.
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    video = await session.get(YoutubeVideo, video_pk)
+    if not video:
+        raise HTTPException(status_code=404, detail="영상을 찾을 수 없습니다.")
+
+    # 블록리스트에 video_id 기록 (이미 존재하면 무시)
+    await session.execute(
+        pg_insert(YoutubeDeletedVideo)
+        .values(video_id=video.video_id)
+        .on_conflict_do_nothing(index_elements=["video_id"])
+    )
+
+    await session.delete(video)
+
+
+@router.post(
+    "/videos/{video_pk}/notify",
+    status_code=status.HTTP_200_OK,
+    response_model=VideoNotifyResponse,
+)
+async def notify_video_manual(
+    video_pk: int,
+    body: VideoNotifyRequest = VideoNotifyRequest(),
+):
+    """분석 완료 영상을 Telegram으로 수동 발송.
+
+    - 미발송 영상: 발송 후 notified_at 기록
+    - 기발송 영상: force=True 로 재발송 (notified_at 갱신)
+    """
+    from app.services.youtube.db_engine import db_engine_manager
+    from app.services.bots.youtube_bot import youtube_bot
+    from app.services.youtube.settings_manager import get_youtube_settings_manager
+
+    mgr = get_youtube_settings_manager()
+    notif_cfg = mgr.get_notification()
+
+    if not notif_cfg.telegram_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Telegram 알림이 비활성화되어 있습니다. 설정 → 알림에서 활성화해 주세요.",
+        )
+
+    try:
+        engine = await db_engine_manager.get_engine()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"DB 연결 실패: {exc}",
+        ) from exc
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    # 영상 존재 및 분석 완료 여부 확인
+    async with session_factory() as sess:
+        video = await sess.get(YoutubeVideo, video_pk)
+        if not video:
+            raise HTTPException(status_code=404, detail="영상을 찾을 수 없습니다.")
+        if video.analysis_status != "done":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"분석이 완료된 영상만 발송할 수 있습니다. (현재 상태: {video.analysis_status})",
+            )
+        already_notified = video.notified_at is not None
+
+    ok = await youtube_bot.notify_standalone(
+        session_factory=session_factory,
+        video_pk=video_pk,
+        low_confidence_threshold=float(notif_cfg.low_confidence_threshold or 0.5),
+        force=body.force or already_notified,
+    )
+
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Telegram 발송에 실패했습니다. Bot 토큰 또는 Chat ID를 확인해 주세요.",
+        )
+
+    # 발송 후 갱신된 notified_at 조회
+    async with session_factory() as sess:
+        video = await sess.get(YoutubeVideo, video_pk)
+        notified_at = video.notified_at if video else None
+
+    label = "재발송" if already_notified else "발송"
+    return VideoNotifyResponse(
+        success=True,
+        message=f"Telegram {label} 완료",
+        notified_at=notified_at,
     )
 
 
@@ -1297,6 +1400,9 @@ def _notification_response() -> NotificationSettingsResponse:
         scheduled_max_per_run=n.scheduled_max_per_run,
         wait_between_messages_sec=n.wait_between_messages_sec,
         low_confidence_threshold=n.low_confidence_threshold,
+        quiet_hours_enabled=n.quiet_hours_enabled,
+        quiet_hours_start=n.quiet_hours_start,
+        quiet_hours_end=n.quiet_hours_end,
     )
 
 
@@ -1321,6 +1427,9 @@ def update_notification_settings(body: NotificationSettingsUpdate, db=Depends(_s
         "scheduled_max_per_run": "scheduled_max_per_run",
         "wait_between_messages_sec": "wait_between_messages_sec",
         "low_confidence_threshold": "low_confidence_threshold",
+        "quiet_hours_enabled": "quiet_hours_enabled",
+        "quiet_hours_start": "quiet_hours_start",
+        "quiet_hours_end": "quiet_hours_end",
     }
     for attr, key in simple_fields.items():
         if attr in data:

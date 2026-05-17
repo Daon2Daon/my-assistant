@@ -191,6 +191,18 @@ class PollTriggerResponse(BaseModel):
 
 # ── 즉시(추가 영상) 분석 ────────────────────────────────────────────────────────
 
+class VideoNotifyRequest(BaseModel):
+    """영상 수동 발송 요청."""
+    force: bool = Field(False, description="True 이면 이미 발송된 영상도 재발송")
+
+
+class VideoNotifyResponse(BaseModel):
+    """영상 수동 발송 결과."""
+    success: bool
+    message: str
+    notified_at: Optional[datetime] = None
+
+
 class InstantAnalyzeRequest(BaseModel):
     """YouTube URL을 입력받아 즉시 분석 시작."""
     video_url: str = Field(..., description="분석할 YouTube 영상 URL")

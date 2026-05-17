@@ -156,3 +156,126 @@ async def _youtube_scheduled_notify_async() -> None:
 def youtube_scheduled_notify_sync() -> None:
     """APScheduler CronTrigger 잡에서 호출되는 동기 래퍼."""
     asyncio.run(_youtube_scheduled_notify_async())
+
+
+# ── 알림 제한 시간 종료 플러시 잡 ────────────────────────────────────────────────
+
+
+async def _youtube_quiet_hours_flush_async() -> None:
+    """알림 제한 시간 종료 시각에 미발송 영상을 플러시 발송.
+
+    - immediate 모드에서만 실행 (scheduled 모드는 예약잡이 직접 처리)
+    - quiet_hours_enabled=False 이면 실행하지 않음
+    - 발송 상한: scheduled_max_per_run (잔여는 다음 날 제한 해제 시 재시도)
+    - 발송 간격: wait_between_messages_sec
+    """
+    from app.services.youtube.db_engine import db_engine_manager
+    from app.services.youtube.settings_manager import get_youtube_settings_manager
+    from app.services.bots.youtube_bot import youtube_bot
+
+    mgr = get_youtube_settings_manager()
+    notif_cfg = mgr.get_notification()
+
+    if not notif_cfg.telegram_enabled:
+        print("ℹ️  youtube_quiet_hours_flush: Telegram 알림 비활성 — skip")
+        return
+
+    if not notif_cfg.quiet_hours_enabled:
+        print("ℹ️  youtube_quiet_hours_flush: 알림 제한 시간 비활성 — skip")
+        return
+
+    if notif_cfg.send_mode != "immediate":
+        print("ℹ️  youtube_quiet_hours_flush: 예약발송 모드 — skip (예약잡이 처리)")
+        return
+
+    try:
+        engine = await db_engine_manager.get_engine()
+    except Exception as exc:
+        print(f"⚠️  youtube_quiet_hours_flush: DB 연결 실패 — {exc}")
+        return
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    # 미발송·분석완료 영상 video_pk 조회 (notify_enabled=True 채널만, 오래된 영상부터)
+    async with session_factory() as sess:
+        stmt = (
+            select(YoutubeVideo.video_pk)
+            .join(YoutubeChannel, YoutubeVideo.channel_pk == YoutubeChannel.channel_pk)
+            .where(YoutubeVideo.analysis_status == "done")
+            .where(YoutubeVideo.notified_at.is_(None))
+            .where(YoutubeChannel.notify_enabled.is_(True))
+            .order_by(YoutubeVideo.published_at.asc())
+        )
+        result = await sess.execute(stmt)
+        all_pending_pks = list(result.scalars().all())
+
+    if not all_pending_pks:
+        print("ℹ️  youtube_quiet_hours_flush: 미발송 영상 없음")
+        return
+
+    max_per = int(notif_cfg.scheduled_max_per_run or 5)
+    if max_per < 1:
+        max_per = 1
+    elif max_per > 50:
+        max_per = 50
+
+    video_pks = all_pending_pks[:max_per]
+    remaining = len(all_pending_pks) - len(video_pks)
+
+    wait_sec = int(notif_cfg.wait_between_messages_sec or 30)
+    threshold = float(notif_cfg.low_confidence_threshold or 0.5)
+
+    print(
+        f"📤 youtube_quiet_hours_flush: 제한 시간 해제, {len(video_pks)}건 플러시 발송 "
+        f"(대기 {wait_sec}초/건, 상한 {max_per}건"
+        f"{f', 잔여 {remaining}건은 다음 제한 해제 시 발송' if remaining > 0 else ''})"
+    )
+
+    sent = 0
+    t_batch = time.monotonic()
+
+    for i, pk in enumerate(video_pks):
+        try:
+            ok = await youtube_bot.notify_standalone(
+                session_factory=session_factory,
+                video_pk=pk,
+                low_confidence_threshold=threshold,
+            )
+            if ok:
+                sent += 1
+        except Exception as exc:
+            print(f"⚠️  youtube_quiet_hours_flush: video_pk={pk} 발송 실패 — {exc}")
+
+        if i < len(video_pks) - 1 and wait_sec > 0:
+            await asyncio.sleep(wait_sec)
+
+    print(f"✅ youtube_quiet_hours_flush: {sent}/{len(video_pks)}건 발송 완료")
+
+    from app.services.youtube.job_logger import (
+        JOB_TYPE_NOTIFY,
+        _STATUS_FAIL,
+        _STATUS_SUCCESS,
+        write_job_log,
+    )
+
+    batch_ms = int((time.monotonic() - t_batch) * 1000)
+    batch_msg = (
+        f"알림제한 해제 플러시: {sent}/{len(video_pks)}건 성공"
+        + (f", 잔여 대기 약 {remaining}건" if remaining else "")
+    )
+    await write_job_log(
+        session_factory,
+        job_type=JOB_TYPE_NOTIFY,
+        status=_STATUS_SUCCESS if sent > 0 else _STATUS_FAIL,
+        message=batch_msg,
+        duration_ms=batch_ms,
+    )
+    _app_log_youtube_batch(
+        "SUCCESS" if sent > 0 else "FAIL",
+        f"youtube_quiet_hours_flush: {batch_msg}",
+    )
+
+
+def youtube_quiet_hours_flush_sync() -> None:
+    """APScheduler CronTrigger 잡에서 호출되는 동기 래퍼."""
+    asyncio.run(_youtube_quiet_hours_flush_async())

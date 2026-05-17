@@ -221,6 +221,38 @@ class PollingSettings:
         )
 
 
+def is_quiet_hours_now(enabled: bool, start_str: str, end_str: str) -> bool:
+    """현재 KST 시각이 알림 제한 시간대인지 확인.
+
+    자정 경계를 넘는 구간(예: 22:00 ~ 08:00)도 올바르게 처리한다.
+    enabled=False 이면 항상 False 반환.
+    """
+    if not enabled:
+        return False
+    try:
+        from zoneinfo import ZoneInfo
+        from datetime import datetime as _dt
+
+        now_kst = _dt.now(ZoneInfo("Asia/Seoul"))
+        now_min = now_kst.hour * 60 + now_kst.minute
+
+        def _parse(t: str) -> int:
+            h, m = t.split(":")
+            return int(h) * 60 + int(m)
+
+        start_min = _parse(start_str)
+        end_min = _parse(end_str)
+
+        if start_min <= end_min:
+            # 같은 날 안에서 (예: 09:00 ~ 22:00)
+            return start_min <= now_min < end_min
+        else:
+            # 자정 경계를 넘는 구간 (예: 22:00 ~ 08:00)
+            return now_min >= start_min or now_min < end_min
+    except Exception:
+        return False
+
+
 @dataclass
 class NotificationSettings:
     telegram_enabled: bool = True
@@ -232,6 +264,10 @@ class NotificationSettings:
     scheduled_max_per_run: int = 5
     wait_between_messages_sec: int = 30
     low_confidence_threshold: float = 0.5
+    # 알림 제한 시간 (Quiet Hours) — immediate 모드에서만 적용
+    quiet_hours_enabled: bool = False
+    quiet_hours_start: str = "22:00"  # KST HH:MM, 제한 시작
+    quiet_hours_end: str = "08:00"    # KST HH:MM, 제한 종료 & 플러시 잡 실행 시각
 
     @classmethod
     def from_rows(cls, rows: list[YoutubeSetting], fernet: Fernet | None) -> NotificationSettings:
@@ -264,6 +300,14 @@ class NotificationSettings:
             elif scheduled_max_per_run > 50:
                 scheduled_max_per_run = 50
 
+        qh_enabled_row = by_key.get("quiet_hours_enabled")
+        if qh_enabled_row is None:
+            quiet_hours_enabled = False
+        else:
+            raw_qh = _row_typed(qh_enabled_row, fernet)
+            # "True"/"False" 문자열 또는 실제 bool 모두 처리
+            quiet_hours_enabled = str(raw_qh).lower() in ("1", "true", "yes", "on")
+
         return cls(
             telegram_enabled=telegram_enabled,
             send_mode=str(_row_typed(by_key.get("send_mode"), fernet) or "immediate"),
@@ -274,6 +318,13 @@ class NotificationSettings:
             ),
             low_confidence_threshold=float(
                 _row_typed(by_key.get("low_confidence_threshold"), fernet) or 0.5
+            ),
+            quiet_hours_enabled=quiet_hours_enabled,
+            quiet_hours_start=str(
+                _row_typed(by_key.get("quiet_hours_start"), fernet) or "22:00"
+            ),
+            quiet_hours_end=str(
+                _row_typed(by_key.get("quiet_hours_end"), fernet) or "08:00"
             ),
         )
 

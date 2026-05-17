@@ -29,6 +29,12 @@ export interface NotificationSettingsResponse {
   scheduled_max_per_run: number
   wait_between_messages_sec: number
   low_confidence_threshold: number
+  /** 알림 제한 시간 (즉시발송 모드에서만 적용) */
+  quiet_hours_enabled: boolean
+  /** 알림 제한 시작 시각 (KST, HH:MM) */
+  quiet_hours_start: string
+  /** 알림 제한 종료 시각 / 플러시 잡 실행 시각 (KST, HH:MM) */
+  quiet_hours_end: string
 }
 
 export interface NotificationSettingsUpdate {
@@ -38,6 +44,9 @@ export interface NotificationSettingsUpdate {
   scheduled_max_per_run?: number
   wait_between_messages_sec?: number
   low_confidence_threshold?: number
+  quiet_hours_enabled?: boolean
+  quiet_hours_start?: string
+  quiet_hours_end?: string
 }
 
 // ── API ───────────────────────────────────────────────────────────────────────

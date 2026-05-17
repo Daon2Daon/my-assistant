@@ -185,6 +185,9 @@ export default function NotificationSettings() {
         scheduled_max_per_run: d.scheduled_max_per_run,
         wait_between_messages_sec: d.wait_between_messages_sec,
         low_confidence_threshold: d.low_confidence_threshold,
+        quiet_hours_enabled: d.quiet_hours_enabled,
+        quiet_hours_start: d.quiet_hours_start,
+        quiet_hours_end: d.quiet_hours_end,
       })
     } catch (e) {
       setError((e as Error).message)
@@ -216,6 +219,9 @@ export default function NotificationSettings() {
         scheduled_max_per_run: updated.scheduled_max_per_run,
         wait_between_messages_sec: updated.wait_between_messages_sec,
         low_confidence_threshold: updated.low_confidence_threshold,
+        quiet_hours_enabled: updated.quiet_hours_enabled,
+        quiet_hours_start: updated.quiet_hours_start,
+        quiet_hours_end: updated.quiet_hours_end,
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 4000)
@@ -384,6 +390,64 @@ export default function NotificationSettings() {
           </div>
         )}
 
+        {/* 알림 제한 시간 (즉시발송 모드일 때만 표시) */}
+        {sendMode === 'immediate' && (
+          <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
+            <h2 className="font-semibold text-gray-800 border-b pb-2">알림 제한 시간</h2>
+            <ToggleSwitch
+              checked={form.quiet_hours_enabled ?? false}
+              onChange={(v) => setF('quiet_hours_enabled', v)}
+              label="알림 제한 시간 활성화"
+              description="지정한 시간대에는 Telegram 알림 발송을 보류하고, 제한 종료 시각에 일괄 발송합니다."
+            />
+
+            {(form.quiet_hours_enabled ?? false) && (
+              <div className="space-y-4 pt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      제한 시작 시각 (KST)
+                    </label>
+                    <input
+                      type="time"
+                      value={form.quiet_hours_start ?? '22:00'}
+                      onChange={(e) => setF('quiet_hours_start', e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">이 시각부터 알림 발송 보류</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      제한 종료 시각 (KST)
+                    </label>
+                    <input
+                      type="time"
+                      value={form.quiet_hours_end ?? '08:00'}
+                      onChange={(e) => setF('quiet_hours_end', e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">이 시각에 보류된 알림 일괄 발송 (플러시)</p>
+                  </div>
+                </div>
+                <div className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-blue-700 text-xs space-y-1">
+                  <p>
+                    <span className="font-medium">플러시 발송 상한:</span>{' '}
+                    &quot;예약발송 회당 최대 건수&quot; 설정값 ({form.scheduled_max_per_run ?? 5}건)을 그대로 사용합니다.
+                  </p>
+                  <p>
+                    <span className="font-medium">발송 간격:</span>{' '}
+                    &quot;건별 발송 대기 시간&quot; ({form.wait_between_messages_sec ?? 30}초)을 그대로 사용합니다.
+                  </p>
+                  <p>
+                    <span className="font-medium">예약발송 모드:</span>{' '}
+                    알림 제한 시간에 영향을 받지 않으며, 등록된 예약 시각에 항상 발송합니다.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* 저장 완료 메시지 */}
         {saved && (
           <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-green-700 text-sm">
@@ -425,6 +489,14 @@ export default function NotificationSettings() {
           )}
           <p>건별 대기: {data.wait_between_messages_sec}초</p>
           <p>저신뢰도 임계값: {Math.round(data.low_confidence_threshold * 100)}%</p>
+          {data.send_mode === 'immediate' && (
+            <p>
+              알림 제한:{' '}
+              {data.quiet_hours_enabled
+                ? `${data.quiet_hours_start} ~ ${data.quiet_hours_end} KST (제한 종료 시 최대 ${data.scheduled_max_per_run}건 플러시)`
+                : '비활성'}
+            </p>
+          )}
         </div>
       )}
     </div>

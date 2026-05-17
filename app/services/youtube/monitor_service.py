@@ -19,6 +19,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.models.youtube_channel import YoutubeChannel
+from app.models.youtube_deleted_video import YoutubeDeletedVideo
 from app.models.youtube_video import YoutubeVideo
 from app.services.youtube.db_engine import DBNotConfiguredError, db_engine_manager
 from app.services.youtube.job_logger import (
@@ -82,6 +83,10 @@ async def claim_pending_video_pks(session: AsyncSession, limit: int) -> List[int
 # 프로세스 크래시·잡 중단 등으로 claim 직후 DB에만 남은 오래된 processing 행을 pending으로 되돌림.
 STALE_PROCESSING_RESET_MINUTES = 180
 
+# 분석 실패 영상 자동 재시도 설정
+FAILED_RETRY_MAX = 3          # 최대 재시도 횟수 (이 횟수에 도달하면 재시도 대상에서 제외)
+FAILED_RETRY_WAIT_MINUTES = 30  # 실패 후 재시도까지 대기 시간 (분)
+
 
 async def reset_stale_processing_videos(session: AsyncSession, stale_minutes: int) -> int:
     """updated_at이 stale_minutes보다 오래된 processing 행을 pending으로 복구. 복구 건수 반환."""
@@ -95,6 +100,26 @@ async def reset_stale_processing_videos(session: AsyncSession, stale_minutes: in
         .values(
             analysis_status="pending",
             analysis_error="[자동복구] 분석 중 상태가 비정상적으로 길어져 대기열로 되돌림",
+            updated_at=datetime.now(timezone.utc),
+        )
+    )
+    result = await session.execute(stmt)
+    return int(result.rowcount or 0)
+
+
+async def reset_eligible_failed_videos(session: AsyncSession) -> int:
+    """retry_count < FAILED_RETRY_MAX 이고 마지막 실패 후 FAILED_RETRY_WAIT_MINUTES 이상 경과한
+    failed 영상을 pending으로 되돌려 재시도 대기열에 넣는다. 복구 건수 반환.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=FAILED_RETRY_WAIT_MINUTES)
+    stmt = (
+        update(YoutubeVideo)
+        .where(YoutubeVideo.analysis_status == "failed")
+        .where(YoutubeVideo.retry_count < FAILED_RETRY_MAX)
+        .where(YoutubeVideo.updated_at < cutoff)
+        .values(
+            analysis_status="pending",
+            analysis_error=None,
             updated_at=datetime.now(timezone.utc),
         )
     )
@@ -220,17 +245,24 @@ class MonitorService:
     async def _filter_new_videos(
         self, session: AsyncSession, video_ids: List[str]
     ) -> List[str]:
-        """DB에 이미 존재하는 video_id를 제외하고 신규 목록만 반환.
+        """DB에 이미 존재하거나 사용자가 삭제한 video_id를 제외하고 신규 목록만 반환.
 
         ON CONFLICT DO NOTHING INSERT 전에 사전 필터링하여 불필요한
         API 호출(get_video_details)을 줄이는 역할도 합니다.
         """
         if not video_ids:
             return []
+        # 이미 수집된 영상
         stmt = select(YoutubeVideo.video_id).where(YoutubeVideo.video_id.in_(video_ids))
         result = await session.execute(stmt)
         existing = {row for row in result.scalars()}
-        return [v for v in video_ids if v not in existing]
+        # 사용자가 삭제한 영상 (블록리스트)
+        del_stmt = select(YoutubeDeletedVideo.video_id).where(
+            YoutubeDeletedVideo.video_id.in_(video_ids)
+        )
+        del_result = await session.execute(del_stmt)
+        deleted = {row for row in del_result.scalars()}
+        return [v for v in video_ids if v not in existing and v not in deleted]
 
     async def _next_sequence(self, session: AsyncSession, channel_pk: int) -> int:
         stmt = select(func.max(YoutubeVideo.sequence_in_channel)).where(
@@ -390,14 +422,19 @@ async def _youtube_pending_analysis_async() -> None:
     batch_limit = 1
 
     n_reset = 0
+    n_retry = 0
     claimed: List[int] = []
     async with session_factory() as sess:
         async with sess.begin():
             n_reset = await reset_stale_processing_videos(sess, STALE_PROCESSING_RESET_MINUTES)
+            n_retry = await reset_eligible_failed_videos(sess)
             claimed = await claim_pending_video_pks(sess, batch_limit)
 
     if n_reset:
         print(f"♻️  YouTube: 오래된 분석중(processing) 영상 {n_reset}건을 pending으로 복구")
+    if n_retry:
+        print(f"🔄 YouTube: 실패 영상 {n_retry}건을 재시도 대기열(pending)로 복구 "
+              f"(기준: retry_count < {FAILED_RETRY_MAX}, {FAILED_RETRY_WAIT_MINUTES}분 대기)")
 
     if not claimed:
         return
@@ -479,6 +516,7 @@ async def _analyze_batch(
                                     .values(
                                         analysis_status="failed",
                                         analysis_error=str(e)[:500],
+                                        retry_count=YoutubeVideo.retry_count + 1,
                                         updated_at=datetime.now(timezone.utc),
                                     )
                                 )

@@ -25,6 +25,8 @@ export default function Videos() {
   const [error, setError] = useState<string | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
   const [tags, setTags] = useState<Tag[]>([])
+  const [deleteTarget, setDeleteTarget] = useState<Video | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const page = Number(searchParams.get('page') ?? 1)
   const channelPk = searchParams.get('channel_pk') ? Number(searchParams.get('channel_pk')) : undefined
@@ -53,6 +55,27 @@ export default function Videos() {
   }
 
   useEffect(() => { load() }, [page, channelPk, tagFilter, statusFilter])
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      await videoApi.remove(deleteTarget.video_pk)
+      setDeleteTarget(null)
+      const remainingOnPage = videos.length - 1
+      if (remainingOnPage === 0 && page > 1) {
+        const next = new URLSearchParams(searchParams)
+        next.set('page', String(page - 1))
+        setSearchParams(next)
+      } else {
+        await load()
+      }
+    } catch (e) {
+      alert((e as Error).message)
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   const setFilter = (key: string, value: string | undefined) => {
     const next = new URLSearchParams(searchParams)
@@ -122,43 +145,53 @@ export default function Videos() {
       ) : (
         <div className="space-y-3">
           {videos.map((v) => (
-            <Link
+            <div
               key={v.video_pk}
-              to={`/youtube/videos/${v.video_pk}`}
               className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow flex gap-4 p-3"
             >
-              <div className="relative shrink-0">
-                {v.thumbnail_url ? (
-                  <img src={v.thumbnail_url} alt={v.title} className="w-40 aspect-video rounded-lg object-cover" />
-                ) : (
-                  <div className="w-40 aspect-video rounded-lg bg-gray-100 flex items-center justify-center text-2xl">🎬</div>
-                )}
-                {v.duration_seconds && (
-                  <span className="absolute bottom-1 right-1 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded">
-                    {formatDuration(v.duration_seconds)}
-                  </span>
-                )}
-              </div>
-                <div className="flex-1 min-w-0 py-1 space-y-1.5">
-                <p className="font-medium text-gray-900 line-clamp-2 text-sm leading-snug">{v.title}</p>
-                {v.summary?.one_line && (
-                  <p className="text-xs text-gray-500 line-clamp-1">{v.summary.one_line}</p>
-                )}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <StatusBadge status={v.analysis_status} />
-                  <NotifyBadge analysisStatus={v.analysis_status} notifiedAt={v.notified_at} />
-                  {v.source_channel_name && (
-                    <span className="text-xs text-purple-600 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full">
-                      추가 · {v.source_channel_name}
+              <Link to={`/youtube/videos/${v.video_pk}`} className="flex gap-4 flex-1 min-w-0">
+                <div className="relative shrink-0">
+                  {v.thumbnail_url ? (
+                    <img src={v.thumbnail_url} alt={v.title} className="w-40 aspect-video rounded-lg object-cover" />
+                  ) : (
+                    <div className="w-40 aspect-video rounded-lg bg-gray-100 flex items-center justify-center text-2xl">🎬</div>
+                  )}
+                  {v.duration_seconds && (
+                    <span className="absolute bottom-1 right-1 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded">
+                      {formatDuration(v.duration_seconds)}
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-3 text-xs text-gray-400">
-                  <span>📅 {dayjs(v.published_at).format('YYYY-MM-DD HH:mm')}</span>
-                  {v.view_count != null && <span>👁 {v.view_count.toLocaleString()}</span>}
+                <div className="flex-1 min-w-0 py-1 space-y-1.5">
+                  <p className="font-medium text-gray-900 line-clamp-2 text-sm leading-snug">{v.title}</p>
+                  {v.summary?.one_line && (
+                    <p className="text-xs text-gray-500 line-clamp-1">{v.summary.one_line}</p>
+                  )}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <StatusBadge status={v.analysis_status} />
+                    <NotifyBadge analysisStatus={v.analysis_status} notifiedAt={v.notified_at} />
+                    {v.source_channel_name && (
+                      <span className="text-xs text-purple-600 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full">
+                        추가 · {v.source_channel_name}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-gray-400">
+                    <span>📅 {dayjs(v.published_at).format('YYYY-MM-DD HH:mm')}</span>
+                    {v.view_count != null && <span>👁 {v.view_count.toLocaleString()}</span>}
+                  </div>
                 </div>
+              </Link>
+              <div className="flex flex-col justify-center shrink-0 pr-1">
+                <button
+                  type="button"
+                  onClick={() => setDeleteTarget(v)}
+                  className="px-2.5 py-1.5 text-xs rounded bg-red-50 text-red-500 hover:bg-red-100"
+                >
+                  삭제
+                </button>
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}
@@ -168,6 +201,36 @@ export default function Videos() {
         next.set('page', String(p))
         setSearchParams(next)
       }} />
+
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full space-y-4">
+            <h3 className="font-bold text-gray-900">영상 삭제 확인</h3>
+            <p className="text-sm text-gray-600">
+              아래 영상과 연관된 분석·태그 데이터가 삭제됩니다. 계속하시겠습니까?
+            </p>
+            <p className="text-sm font-medium text-gray-800 line-clamp-3">{deleteTarget.title}</p>
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? '삭제 중...' : '삭제'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

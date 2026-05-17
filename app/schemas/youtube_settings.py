@@ -180,6 +180,10 @@ class NotificationSettingsResponse(BaseModel):
     )
     wait_between_messages_sec: int = Field(description="발송 건 간 대기 시간 (초)")
     low_confidence_threshold: float = Field(description="저신뢰도 배지 임계값 (0.0 ~ 1.0)")
+    # 알림 제한 시간 (즉시발송 모드에서만 적용)
+    quiet_hours_enabled: bool = Field(False, description="알림 제한 시간 활성화 여부")
+    quiet_hours_start: str = Field("22:00", description="알림 제한 시작 시각 (KST, HH:MM)")
+    quiet_hours_end: str = Field("08:00", description="알림 제한 종료 시각 / 플러시 잡 실행 시각 (KST, HH:MM)")
 
 
 class NotificationSettingsUpdate(BaseModel):
@@ -189,6 +193,10 @@ class NotificationSettingsUpdate(BaseModel):
     scheduled_max_per_run: Optional[int] = Field(None, ge=1, le=50)
     wait_between_messages_sec: Optional[int] = Field(None, ge=0, le=600)
     low_confidence_threshold: Optional[float] = Field(None, ge=0.0, le=1.0)
+    # 알림 제한 시간
+    quiet_hours_enabled: Optional[bool] = None
+    quiet_hours_start: Optional[str] = Field(None, pattern=r"^([01]?\d|2[0-3]):[0-5]\d$")
+    quiet_hours_end: Optional[str] = Field(None, pattern=r"^([01]?\d|2[0-3]):[0-5]\d$")
 
     @field_validator("scheduled_times")
     @classmethod

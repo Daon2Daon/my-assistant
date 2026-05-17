@@ -637,63 +637,94 @@ class SchedulerService:
 
     def setup_youtube_notify_jobs(self):
         """
-        notification.scheduled_times 설정에 따라 예약발송 CronTrigger 잡을 등록한다.
-        - send_mode가 'scheduled'가 아니거나 scheduled_times가 비어 있으면 등록하지 않음.
-        - 잡 ID 형식: youtube_notify_HHMM (예: youtube_notify_1400)
+        notification 설정에 따라 예약발송 및 알림제한 플러시 CronTrigger 잡을 등록한다.
+
+        - 예약발송 잡 (youtube_notify_HHMM): send_mode='scheduled' + scheduled_times 있을 때만
+        - 플러시 잡 (youtube_quiet_hours_flush): quiet_hours_enabled=True 일 때
         """
         import re
-        from app.services.youtube.notify_service import youtube_scheduled_notify_sync
+        from app.services.youtube.notify_service import (
+            youtube_scheduled_notify_sync,
+            youtube_quiet_hours_flush_sync,
+        )
 
         try:
             from app.services.youtube.settings_manager import get_youtube_settings_manager
             mgr = get_youtube_settings_manager()
             notif_cfg = mgr.get_notification()
         except Exception as e:
-            print(f"⚠️ YouTube 예약발송 설정 로드 실패: {e}")
-            return
-
-        if notif_cfg.send_mode != "scheduled" or not notif_cfg.scheduled_times:
+            print(f"⚠️ YouTube 알림 설정 로드 실패: {e}")
             return
 
         pattern = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
-        for time_str in notif_cfg.scheduled_times:
-            m = pattern.match(time_str)
+
+        # ── 예약발송 잡 등록 ─────────────────────────────────────────────
+        if notif_cfg.send_mode == "scheduled" and notif_cfg.scheduled_times:
+            for time_str in notif_cfg.scheduled_times:
+                m = pattern.match(time_str)
+                if not m:
+                    print(f"⚠️ YouTube 예약발송: 잘못된 시각 형식 '{time_str}' — skip")
+                    continue
+                hour, minute = int(m.group(1)), int(m.group(2))
+                job_id = f"youtube_notify_{hour:02d}{minute:02d}"
+                try:
+                    # 예약발송은 한 회차당 최대 5건×건별 대기 등으로 수 분 걸릴 수 있어,
+                    # 기본 misfire_grace_time(초단위)에서는 다른 잡이 스레드를 점유할 때 슬롯이 통째로 스킵되기 쉽다.
+                    # 동일 슬롯 중복 실행 방지(max_instances=1), 누락분은 한 번으로 합침(coalesce=True).
+                    self.add_cron_job(
+                        func=youtube_scheduled_notify_sync,
+                        job_id=job_id,
+                        hour=hour,
+                        minute=minute,
+                        misfire_grace_time=3600,
+                        max_instances=1,
+                        coalesce=True,
+                    )
+                    print(f"✅ YouTube 예약발송 Job 등록: {job_id} ({hour:02d}:{minute:02d})")
+                except Exception as e:
+                    print(f"❌ YouTube 예약발송 Job 등록 실패 ({time_str}): {e}")
+
+        # ── 알림제한 플러시 잡 등록 ──────────────────────────────────────
+        # immediate 모드 + quiet_hours_enabled 일 때, quiet_hours_end 시각에 미발송 영상 플러시
+        if notif_cfg.quiet_hours_enabled and notif_cfg.quiet_hours_end:
+            m = pattern.match(notif_cfg.quiet_hours_end)
             if not m:
-                print(f"⚠️ YouTube 예약발송: 잘못된 시각 형식 '{time_str}' — skip")
-                continue
-            hour, minute = int(m.group(1)), int(m.group(2))
-            job_id = f"youtube_notify_{hour:02d}{minute:02d}"
-            try:
-                # 예약발송은 한 회차당 최대 5건×건별 대기 등으로 수 분 걸릴 수 있어,
-                # 기본 misfire_grace_time(초단위)에서는 다른 잡이 스레드를 점유할 때 슬롯이 통째로 스킵되기 쉽다.
-                # 동일 슬롯 중복 실행 방지(max_instances=1), 누락분은 한 번으로 합침(coalesce=True).
-                self.add_cron_job(
-                    func=youtube_scheduled_notify_sync,
-                    job_id=job_id,
-                    hour=hour,
-                    minute=minute,
-                    misfire_grace_time=3600,
-                    max_instances=1,
-                    coalesce=True,
+                print(
+                    f"⚠️ YouTube 플러시잡: 잘못된 quiet_hours_end '{notif_cfg.quiet_hours_end}' — skip"
                 )
-                print(f"✅ YouTube 예약발송 Job 등록: {job_id} ({hour:02d}:{minute:02d})")
-            except Exception as e:
-                print(f"❌ YouTube 예약발송 Job 등록 실패 ({time_str}): {e}")
+            else:
+                hour, minute = int(m.group(1)), int(m.group(2))
+                try:
+                    self.add_cron_job(
+                        func=youtube_quiet_hours_flush_sync,
+                        job_id="youtube_quiet_hours_flush",
+                        hour=hour,
+                        minute=minute,
+                        misfire_grace_time=3600,
+                        max_instances=1,
+                        coalesce=True,
+                    )
+                    print(
+                        f"✅ YouTube 알림제한 플러시 Job 등록: "
+                        f"매일 {hour:02d}:{minute:02d} (quiet_hours_end)"
+                    )
+                except Exception as e:
+                    print(f"❌ YouTube 알림제한 플러시 Job 등록 실패: {e}")
 
     def update_youtube_notify_jobs(self):
         """
-        notification 설정 변경 시 기존 예약발송 잡을 전부 제거하고 재등록.
+        notification 설정 변경 시 기존 예약발송 잡과 플러시 잡을 전부 제거하고 재등록.
         """
         try:
             existing_ids = [
                 job.id for job in self.scheduler.get_jobs()
-                if job.id.startswith("youtube_notify_")
+                if job.id.startswith("youtube_notify_") or job.id == "youtube_quiet_hours_flush"
             ]
             for job_id in existing_ids:
                 self.remove_job(job_id)
             self.setup_youtube_notify_jobs()
         except Exception as e:
-            print(f"❌ YouTube 예약발송 Job 갱신 실패: {e}")
+            print(f"❌ YouTube 알림 Job 갱신 실패: {e}")
 
 
 # 싱글톤 인스턴스

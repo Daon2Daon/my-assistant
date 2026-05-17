@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import dayjs from 'dayjs'
@@ -24,10 +24,14 @@ function ConfidenceBar({ score }: { score: number }) {
 
 export default function VideoDetail() {
   const { videoPk } = useParams<{ videoPk: string }>()
+  const navigate = useNavigate()
   const [video, setVideo] = useState<VideoDetailType | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [reanalyzing, setReanalyzing] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [notifying, setNotifying] = useState(false)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const pollingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -93,6 +97,43 @@ export default function VideoDetail() {
     setPromptOpen((prev) => !prev)
   }
 
+  const handleDelete = async () => {
+    if (!videoPk) return
+    setDeleting(true)
+    stopPolling()
+    try {
+      await videoApi.remove(Number(videoPk))
+      navigate('/youtube/videos')
+    } catch (e) {
+      alert((e as Error).message)
+      setDeleting(false)
+      setDeleteConfirm(false)
+    }
+  }
+
+  const handleNotify = async (force = false) => {
+    if (!videoPk || !video) return
+    if (video.analysis_status !== 'done') {
+      alert('분석이 완료된 영상만 Telegram으로 발송할 수 있습니다.')
+      return
+    }
+    if (video.notified_at && !force) {
+      if (!window.confirm('이미 발송된 영상입니다. Telegram으로 다시 발송하시겠습니까?')) return
+      return handleNotify(true)
+    }
+    setNotifying(true)
+    try {
+      const res = await videoApi.notify(Number(videoPk), force)
+      // notified_at 갱신을 위해 조용히 새로고침
+      await silentRefresh()
+      alert(res.message)
+    } catch (e) {
+      alert((e as Error).message)
+    } finally {
+      setNotifying(false)
+    }
+  }
+
   const handleReanalyze = async () => {
     if (!videoPk) return
     setReanalyzing(true)
@@ -150,7 +191,7 @@ export default function VideoDetail() {
                   </a>
                   <button
                     onClick={handleOpenPrompt}
-                    disabled={reanalyzing}
+                    disabled={reanalyzing || notifying}
                     className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors disabled:opacity-60 ${
                       promptOpen
                         ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
@@ -161,11 +202,38 @@ export default function VideoDetail() {
                     {promptOpen ? '프롬프트 닫기' : '프롬프트 수정'}
                   </button>
                   <button
+                    type="button"
+                    onClick={() => handleNotify(false)}
+                    disabled={notifying || reanalyzing || deleting || video.analysis_status !== 'done'}
+                    className="px-3 py-1.5 bg-sky-50 text-sky-700 text-xs rounded-lg hover:bg-sky-100 disabled:opacity-60 font-medium"
+                    title={
+                      video.analysis_status !== 'done'
+                        ? '분석 완료 후 발송 가능'
+                        : video.notified_at
+                          ? 'Telegram 재발송'
+                          : 'Telegram 수동 발송'
+                    }
+                  >
+                    {notifying
+                      ? '발송 중...'
+                      : video.notified_at
+                        ? 'Telegram 재발송'
+                        : 'Telegram 발송'}
+                  </button>
+                  <button
                     onClick={handleReanalyze}
-                    disabled={reanalyzing}
+                    disabled={reanalyzing || deleting || notifying}
                     className="px-3 py-1.5 bg-blue-50 text-blue-600 text-xs rounded-lg hover:bg-blue-100 disabled:opacity-60 font-medium"
                   >
                     {reanalyzing ? '분석 중...' : promptOpen ? '이 프롬프트로 재분석' : '재분석'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeleteConfirm(true)}
+                    disabled={reanalyzing || deleting || notifying}
+                    className="px-3 py-1.5 bg-red-50 text-red-500 text-xs rounded-lg hover:bg-red-100 disabled:opacity-60 font-medium"
+                  >
+                    삭제
                   </button>
                 </div>
               </div>
@@ -378,6 +446,36 @@ export default function VideoDetail() {
           </div>
         )}
       </div>
+
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full space-y-4">
+            <h3 className="font-bold text-gray-900">영상 삭제 확인</h3>
+            <p className="text-sm text-gray-600">
+              이 영상과 연관된 분석·태그 데이터가 삭제됩니다. 계속하시겠습니까?
+            </p>
+            <p className="text-sm font-medium text-gray-800 line-clamp-3">{video.title}</p>
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirm(false)}
+                disabled={deleting}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? '삭제 중...' : '삭제'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

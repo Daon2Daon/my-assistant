@@ -143,6 +143,12 @@ export interface PollTriggerResponse {
   message: string
 }
 
+export interface VideoNotifyResponse {
+  success: boolean
+  message: string
+  notified_at: string | null
+}
+
 export interface PromptSettings {
   primary_prompt: string
   fallback_prompt: string
@@ -194,6 +200,14 @@ export const videoApi = {
   },
 
   get: (pk: number) => request<VideoDetail>(`/videos/${pk}`),
+
+  remove: (pk: number) => request<void>(`/videos/${pk}`, { method: 'DELETE' }),
+
+  notify: (pk: number, force = false) =>
+    request<VideoNotifyResponse>(`/videos/${pk}/notify`, {
+      method: 'POST',
+      body: JSON.stringify({ force }),
+    }),
 
   reanalyze: (pk: number, customPrompt?: string) =>
     request<PollTriggerResponse>(`/videos/${pk}/reanalyze`, {

@@ -25,6 +25,7 @@ export default function Channels() {
     channel_input: '',
     category: '',
     poll_interval_min: 720,
+    is_active: true,
     notify_enabled: true,
     auto_poll_now: false,
   })
@@ -60,7 +61,7 @@ export default function Channels() {
       })
       setChannels((prev) => [ch, ...prev])
       setAdding(false)
-      setAddForm({ channel_input: '', category: '', poll_interval_min: 720, notify_enabled: true, auto_poll_now: false })
+      setAddForm({ channel_input: '', category: '', poll_interval_min: 720, is_active: true, notify_enabled: true, auto_poll_now: false })
     } catch (e) {
       setAddError((e as Error).message)
     } finally {
@@ -178,6 +179,21 @@ export default function Channels() {
         <form onSubmit={handleAdd} className="bg-white rounded-xl shadow-sm p-5 space-y-4">
           <h2 className="font-semibold text-gray-800">새 채널 추가</h2>
           {addError && <ErrorBanner message={addError} />}
+          {/* 수동 분석 전용 토글 */}
+          <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={!addForm.is_active}
+              onChange={(e) => setAddForm({
+                ...addForm,
+                is_active: !e.target.checked,
+                auto_poll_now: e.target.checked ? false : addForm.auto_poll_now,
+              })}
+            />
+            <span className="font-medium text-gray-700">수동 분석 전용 등록</span>
+            <span className="text-gray-400 text-xs">(자동 모니터링 없이 채널만 등록합니다)</span>
+          </label>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">채널 입력 *</label>
@@ -200,16 +216,18 @@ export default function Channels() {
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">모니터링 주기 (분)</label>
-              <input
-                type="number"
-                min={10}
-                value={addForm.poll_interval_min}
-                onChange={(e) => setAddForm({ ...addForm, poll_interval_min: Number(e.target.value) })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+            {addForm.is_active && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">모니터링 주기 (분)</label>
+                <input
+                  type="number"
+                  min={10}
+                  value={addForm.poll_interval_min}
+                  onChange={(e) => setAddForm({ ...addForm, poll_interval_min: Number(e.target.value) })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-6">
             <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
@@ -220,14 +238,16 @@ export default function Channels() {
               />
               알림 활성화
             </label>
-            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={addForm.auto_poll_now}
-                onChange={(e) => setAddForm({ ...addForm, auto_poll_now: e.target.checked })}
-              />
-              즉시 모니터링
-            </label>
+            {addForm.is_active && (
+              <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={addForm.auto_poll_now}
+                  onChange={(e) => setAddForm({ ...addForm, auto_poll_now: e.target.checked })}
+                />
+                즉시 모니터링
+              </label>
+            )}
           </div>
           <div className="flex gap-2 justify-end">
             <button
@@ -254,97 +274,117 @@ export default function Channels() {
           <p className="text-5xl mb-3">📺</p>
           <p>등록된 채널이 없습니다. 채널을 추가해 보세요.</p>
         </div>
-      ) : (
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">채널</th>
-                <th className="text-center px-3 py-3 font-medium text-gray-600">활성</th>
-                <th className="text-center px-3 py-3 font-medium text-gray-600">알림</th>
-                <th className="text-left px-3 py-3 font-medium text-gray-600">
-                  카테고리
-                  <span className="block text-[10px] font-normal text-gray-400 normal-case">포커스 해제 시 저장</span>
-                </th>
-                <th className="text-right px-3 py-3 font-medium text-gray-600">
-                  모니터링(분)
-                  <span className="block text-[10px] font-normal text-gray-400 normal-case">포커스 해제 시 저장</span>
-                </th>
-                <th className="text-left px-3 py-3 font-medium text-gray-600">최근 모니터링</th>
-                <th className="px-3 py-3"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {channels.map((ch) => (
-                <tr key={ch.channel_pk} className={`hover:bg-gray-50 ${!ch.is_active ? 'opacity-50' : ''}`}>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      {ch.thumbnail_url && (
-                        <img src={ch.thumbnail_url} alt="" className="w-8 h-8 rounded-full object-cover" />
-                      )}
-                      <div>
-                        <p className="font-medium text-gray-900">{ch.channel_name}</p>
-                        {ch.channel_handle && <p className="text-xs text-gray-400">{ch.channel_handle}</p>}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="text-center px-3 py-3">
-                    <ToggleSwitch checked={ch.is_active} onChange={() => handleToggleActive(ch)} />
-                  </td>
-                  <td className="text-center px-3 py-3">
-                    <ToggleSwitch checked={ch.notify_enabled} onChange={() => handleToggleNotify(ch)} />
-                  </td>
-                  <td className="px-3 py-3">
-                    <input
-                      type="text"
-                      placeholder="-"
-                      disabled={savingCategoryPk === ch.channel_pk}
-                      key={`${ch.channel_pk}-category-${ch.category}`}
-                      defaultValue={ch.category ?? ''}
-                      onBlur={(e) => handleCategoryBlur(ch, e.target.value, e.target)}
-                      className="w-28 border border-gray-200 rounded px-2 py-1 text-sm text-gray-800 placeholder-gray-300 disabled:opacity-50"
-                      title="값을 바꾼 뒤 다른 곳을 클릭하면 저장됩니다"
-                    />
-                  </td>
-                  <td className="text-right px-3 py-3">
-                    <input
-                      type="number"
-                      min={10}
-                      max={10080}
-                      disabled={savingPollPk === ch.channel_pk}
-                      key={`${ch.channel_pk}-poll-${ch.poll_interval_min}`}
-                      defaultValue={ch.poll_interval_min}
-                      onBlur={(e) => handlePollIntervalBlur(ch, e.target.value, e.target)}
-                      className="w-24 text-right border border-gray-200 rounded px-2 py-1 text-sm text-gray-800 disabled:opacity-50"
-                      title="값을 바꾼 뒤 다른 곳을 클릭하면 저장됩니다"
-                    />
-                  </td>
-                  <td className="px-3 py-3 text-gray-400 text-xs">
-                    {ch.last_checked_at ? dayjs(ch.last_checked_at).format('MM/DD HH:mm') : '-'}
-                  </td>
-                  <td className="px-3 py-3">
-                    <div className="flex items-center gap-1 justify-end">
-                      <button
-                        onClick={() => handlePoll(ch)}
-                        disabled={pollingPk === ch.channel_pk}
-                        className="px-2 py-1 text-xs rounded bg-blue-50 text-blue-600 hover:bg-blue-100 disabled:opacity-50"
-                      >
-                        {pollingPk === ch.channel_pk ? '...' : '모니터링'}
-                      </button>
-                      <button
-                        onClick={() => setDeleteTarget(ch)}
-                        className="px-2 py-1 text-xs rounded bg-red-50 text-red-500 hover:bg-red-100"
-                      >
-                        삭제
-                      </button>
-                    </div>
-                  </td>
+      ) : (() => {
+        const activeChannels = channels.filter((ch) => ch.is_active)
+        const inactiveChannels = channels.filter((ch) => !ch.is_active)
+        const hasGroups = activeChannels.length > 0 && inactiveChannels.length > 0
+
+        const renderRow = (ch: Channel) => (
+          <tr key={ch.channel_pk} className={`hover:bg-gray-50 ${!ch.is_active ? 'bg-gray-50/60' : ''}`}>
+            <td className="px-4 py-3">
+              <div className="flex items-center gap-2">
+                {ch.thumbnail_url && (
+                  <img src={ch.thumbnail_url} alt="" className="w-8 h-8 rounded-full object-cover" />
+                )}
+                <div>
+                  <p className={`font-medium ${ch.is_active ? 'text-gray-900' : 'text-gray-500'}`}>{ch.channel_name}</p>
+                  {ch.channel_handle && <p className="text-xs text-gray-400">{ch.channel_handle}</p>}
+                </div>
+              </div>
+            </td>
+            <td className="text-center px-3 py-3">
+              <ToggleSwitch checked={ch.is_active} onChange={() => handleToggleActive(ch)} />
+            </td>
+            <td className="text-center px-3 py-3">
+              <ToggleSwitch checked={ch.notify_enabled} onChange={() => handleToggleNotify(ch)} />
+            </td>
+            <td className="px-3 py-3">
+              <input
+                type="text"
+                placeholder="-"
+                disabled={savingCategoryPk === ch.channel_pk}
+                key={`${ch.channel_pk}-category-${ch.category}`}
+                defaultValue={ch.category ?? ''}
+                onBlur={(e) => handleCategoryBlur(ch, e.target.value, e.target)}
+                className="w-28 border border-gray-200 rounded px-2 py-1 text-sm text-gray-800 placeholder-gray-300 disabled:opacity-50"
+                title="값을 바꾼 뒤 다른 곳을 클릭하면 저장됩니다"
+              />
+            </td>
+            <td className="text-right px-3 py-3">
+              <input
+                type="number"
+                min={10}
+                max={10080}
+                disabled={savingPollPk === ch.channel_pk || !ch.is_active}
+                key={`${ch.channel_pk}-poll-${ch.poll_interval_min}`}
+                defaultValue={ch.poll_interval_min}
+                onBlur={(e) => handlePollIntervalBlur(ch, e.target.value, e.target)}
+                className="w-24 text-right border border-gray-200 rounded px-2 py-1 text-sm text-gray-800 disabled:opacity-50"
+                title={ch.is_active ? '값을 바꾼 뒤 다른 곳을 클릭하면 저장됩니다' : '비활성 채널은 모니터링 주기를 사용하지 않습니다'}
+              />
+            </td>
+            <td className="px-3 py-3 text-gray-400 text-xs">
+              {ch.last_checked_at ? dayjs(ch.last_checked_at).format('MM/DD HH:mm') : '-'}
+            </td>
+            <td className="px-3 py-3">
+              <div className="flex items-center gap-1 justify-end">
+                <button
+                  onClick={() => handlePoll(ch)}
+                  disabled={pollingPk === ch.channel_pk || !ch.is_active}
+                  title={!ch.is_active ? '비활성 채널은 자동 모니터링을 지원하지 않습니다' : undefined}
+                  className="px-2 py-1 text-xs rounded bg-blue-50 text-blue-600 hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {pollingPk === ch.channel_pk ? '...' : '모니터링'}
+                </button>
+                <button
+                  onClick={() => setDeleteTarget(ch)}
+                  className="px-2 py-1 text-xs rounded bg-red-50 text-red-500 hover:bg-red-100"
+                >
+                  삭제
+                </button>
+              </div>
+            </td>
+          </tr>
+        )
+
+        const renderSectionHeader = (label: string) => (
+          <tr key={label}>
+            <td colSpan={7} className="px-4 py-2 text-[11px] font-semibold text-gray-400 tracking-wide uppercase bg-gray-50 border-t border-b border-gray-200">
+              {label}
+            </td>
+          </tr>
+        )
+
+        return (
+          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">채널</th>
+                  <th className="text-center px-3 py-3 font-medium text-gray-600">활성</th>
+                  <th className="text-center px-3 py-3 font-medium text-gray-600">알림</th>
+                  <th className="text-left px-3 py-3 font-medium text-gray-600">
+                    카테고리
+                    <span className="block text-[10px] font-normal text-gray-400 normal-case">포커스 해제 시 저장</span>
+                  </th>
+                  <th className="text-right px-3 py-3 font-medium text-gray-600">
+                    모니터링(분)
+                    <span className="block text-[10px] font-normal text-gray-400 normal-case">포커스 해제 시 저장</span>
+                  </th>
+                  <th className="text-left px-3 py-3 font-medium text-gray-600">최근 모니터링</th>
+                  <th className="px-3 py-3"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {hasGroups && renderSectionHeader(`모니터링 채널 (${activeChannels.length})`)}
+                {activeChannels.map(renderRow)}
+                {inactiveChannels.length > 0 && renderSectionHeader(`비활성 채널 (${inactiveChannels.length})`)}
+                {inactiveChannels.map(renderRow)}
+              </tbody>
+            </table>
+          </div>
+        )
+      })()}
 
       {/* 삭제 확인 모달 */}
       {deleteTarget && (

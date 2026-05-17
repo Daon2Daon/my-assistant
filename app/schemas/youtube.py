@@ -21,6 +21,7 @@ class ChannelCreate(BaseModel):
     )
     category: Optional[str] = None
     poll_interval_min: int = Field(720, ge=10, description="모니터링 주기 (분), 최소 10분")
+    is_active: bool = Field(True, description="False 이면 수동 분석 전용으로 등록 (자동 모니터링 안 함)")
     notify_enabled: bool = True
     auto_poll_now: bool = Field(False, description="추가 즉시 모니터링 트리거 여부")
 

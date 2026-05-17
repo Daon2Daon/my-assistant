@@ -278,12 +278,12 @@ async def add_channel(
         category=body.category,
         poll_interval_min=body.poll_interval_min,
         notify_enabled=body.notify_enabled,
-        is_active=True,
+        is_active=body.is_active,
     )
     session.add(channel)
     await session.flush()  # channel_pk 할당
 
-    if body.auto_poll_now:
+    if body.auto_poll_now and body.is_active:
         asyncio.create_task(_trigger_channel_poll(channel.channel_pk))
 
     return channel
@@ -591,7 +591,7 @@ async def notify_video_manual(
         session_factory=session_factory,
         video_pk=video_pk,
         low_confidence_threshold=float(notif_cfg.low_confidence_threshold or 0.5),
-        force=body.force or already_notified,
+        force=True,  # 수동 발송은 채널 notify_enabled 및 notified_at 설정을 무시
     )
 
     if not ok:
@@ -800,8 +800,25 @@ async def instant_analyze(
 
     vm = metas[0]
 
-    # 가상 채널 확보
-    instant_ch = await ensure_instant_channel(session)
+    # 영상의 YouTube channel_id가 DB에 등록된 채널인지 확인
+    registered_channel: YoutubeChannel | None = None
+    if vm.channel_id:
+        ch_result = await session.execute(
+            select(YoutubeChannel).where(YoutubeChannel.channel_id == vm.channel_id)
+        )
+        registered_channel = ch_result.scalar_one_or_none()
+
+    if registered_channel:
+        # 등록된 채널 소속으로 저장
+        target_channel_pk = registered_channel.channel_pk
+        display_channel_name = registered_channel.channel_name
+        source_channel_name_val = None  # 등록 채널은 source_channel_name 불필요
+    else:
+        # 가상 채널 소속으로 저장
+        instant_ch = await ensure_instant_channel(session)
+        target_channel_pk = instant_ch.channel_pk
+        display_channel_name = vm.channel_title or INSTANT_CHANNEL_NAME
+        source_channel_name_val = display_channel_name
 
     # 영상 INSERT
     from datetime import datetime as _dt
@@ -813,7 +830,7 @@ async def instant_analyze(
         published_at = _dt.now(timezone.utc)
 
     new_video = YoutubeVideo(
-        channel_pk=instant_ch.channel_pk,
+        channel_pk=target_channel_pk,
         video_id=vm.video_id,
         video_url=vm.video_url,
         title=vm.title,
@@ -823,7 +840,7 @@ async def instant_analyze(
         duration_seconds=_parse_iso_duration(vm.duration),
         view_count=vm.view_count,
         like_count=vm.like_count,
-        source_channel_name=vm.channel_title or INSTANT_CHANNEL_NAME,
+        source_channel_name=source_channel_name_val,
         analysis_status="processing",
         retry_count=0,
     )
@@ -831,7 +848,6 @@ async def instant_analyze(
     await session.flush()  # video_pk 할당
 
     video_pk = new_video.video_pk
-    source_channel_name = new_video.source_channel_name or INSTANT_CHANNEL_NAME
 
     # 분석 비동기 시작
     asyncio.create_task(
@@ -842,7 +858,7 @@ async def instant_analyze(
         video_pk=video_pk,
         video_id=vm.video_id,
         title=vm.title,
-        source_channel_name=source_channel_name,
+        source_channel_name=display_channel_name,
         analysis_status="processing",
         existing=False,
         message=f"'{vm.title}' 분석을 시작합니다.",

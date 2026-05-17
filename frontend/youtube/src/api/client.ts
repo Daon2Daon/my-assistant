@@ -165,6 +165,7 @@ export const channelApi = {
     channel_input: string
     category?: string
     poll_interval_min?: number
+    is_active?: boolean
     notify_enabled?: boolean
     auto_poll_now?: boolean
   }) => request<Channel>('/channels', { method: 'POST', body: JSON.stringify(body) }),

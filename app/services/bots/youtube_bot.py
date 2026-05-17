@@ -281,7 +281,7 @@ class YoutubeBot:
                     return True
 
                 channel = await self._fetch_channel(sess, video.channel_pk)
-                if channel and not channel.notify_enabled:
+                if channel and not channel.notify_enabled and not force:
                     await _write_notify_job_log(
                         channel_pk=video.channel_pk, video_pk=video_pk,
                         status=_STATUS_SKIP, message="채널 알림 비활성 (notify_enabled)",

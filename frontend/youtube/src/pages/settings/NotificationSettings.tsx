@@ -429,19 +429,24 @@ export default function NotificationSettings() {
                     <p className="text-xs text-gray-400 mt-1">이 시각에 보류된 알림 일괄 발송 (플러시)</p>
                   </div>
                 </div>
-                <div className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-blue-700 text-xs space-y-1">
-                  <p>
-                    <span className="font-medium">플러시 발송 상한:</span>{' '}
-                    &quot;예약발송 회당 최대 건수&quot; 설정값 ({form.scheduled_max_per_run ?? 5}건)을 그대로 사용합니다.
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    플러시 회당 최대 발송 건수
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={form.scheduled_max_per_run ?? 5}
+                    onChange={(e) => setF('scheduled_max_per_run', Number(e.target.value))}
+                    className="w-full max-w-xs border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">
+                    제한 종료 시 일괄 발송할 최대 건수 (잔여는 다음 날 제한 해제 시 발송). 건별 대기는 위의 &quot;건별 발송 대기 시간&quot; 적용.
                   </p>
-                  <p>
-                    <span className="font-medium">발송 간격:</span>{' '}
-                    &quot;건별 발송 대기 시간&quot; ({form.wait_between_messages_sec ?? 30}초)을 그대로 사용합니다.
-                  </p>
-                  <p>
-                    <span className="font-medium">예약발송 모드:</span>{' '}
-                    알림 제한 시간에 영향을 받지 않으며, 등록된 예약 시각에 항상 발송합니다.
-                  </p>
+                </div>
+                <div className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-blue-700 text-xs">
+                  예약발송 모드는 알림 제한 시간의 영향을 받지 않으며, 등록된 예약 시각에 항상 발송합니다.
                 </div>
               </div>
             )}
@@ -493,7 +498,7 @@ export default function NotificationSettings() {
             <p>
               알림 제한:{' '}
               {data.quiet_hours_enabled
-                ? `${data.quiet_hours_start} ~ ${data.quiet_hours_end} KST (제한 종료 시 최대 ${data.scheduled_max_per_run}건 플러시)`
+                ? `${data.quiet_hours_start} ~ ${data.quiet_hours_end} KST · 최대 ${data.scheduled_max_per_run}건/회 플러시`
                 : '비활성'}
             </p>
           )}

@@ -21,6 +21,25 @@ from app.crud import (
 from app.services.notification import notification_service
 
 
+def _is_trading_day(market: str) -> bool:
+    """오늘이 해당 시장의 거래일인지 확인한다 (주말·공휴일 모두 제외).
+
+    pandas_market_calendars의 NYSE/KRX 공식 캘린더를 사용한다.
+    라이브러리 오류 시 True를 반환해 발송을 차단하지 않는다.
+    """
+    try:
+        import pandas_market_calendars as mcal
+        cal_name = "NYSE" if market == "US" else "KRX"
+        tz = ZoneInfo("America/New_York" if market == "US" else "Asia/Seoul")
+        today = datetime.now(tz).strftime("%Y-%m-%d")
+        cal = mcal.get_calendar(cal_name)
+        schedule = cal.schedule(start_date=today, end_date=today)
+        return not schedule.empty
+    except Exception as e:
+        print(f"⚠️  거래일 체크 실패 ({market}): {e} — 발송 허용으로 처리")
+        return True
+
+
 class FinanceBot:
     """금융 알림 봇"""
 
@@ -707,6 +726,14 @@ class FinanceBot:
         db = SessionLocal()
 
         try:
+            # 거래일 체크 (NYSE 기준, 미국 동부 시간)
+            if not _is_trading_day("US"):
+                et_now = datetime.now(ZoneInfo("America/New_York"))
+                today_str = et_now.strftime("%Y-%m-%d (%a)")
+                print(f"⏸️  미국 증시 휴장일 — 발송 스킵 ({today_str} ET)")
+                create_log(db, "finance", "SKIP", f"미국 증시 휴장일 ({today_str} ET)")
+                return
+
             # 사용자 조회
             user = get_or_create_user(db)
 
@@ -805,6 +832,14 @@ class FinanceBot:
         db = SessionLocal()
 
         try:
+            # 거래일 체크 (KRX 기준, 한국 시간)
+            if not _is_trading_day("KR"):
+                kr_now = datetime.now(ZoneInfo("Asia/Seoul"))
+                today_str = kr_now.strftime("%Y-%m-%d (%a)")
+                print(f"⏸️  한국 증시 휴장일 — 발송 스킵 ({today_str} KST)")
+                create_log(db, "finance", "SKIP", f"한국 증시 휴장일 ({today_str} KST)")
+                return
+
             # 사용자 조회
             user = get_or_create_user(db)
 

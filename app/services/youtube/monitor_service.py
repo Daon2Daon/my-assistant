@@ -334,70 +334,73 @@ async def _youtube_master_poll_async() -> None:
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     service = MonitorService(polling=polling_cfg)
 
-    async with session_factory() as session:
-        try:
-            due_channels = await service.list_due_channels(session)
-        except Exception as e:
-            print(f"❌ due_channels 조회 실패: {e}")
+    try:
+        async with session_factory() as session:
+            try:
+                due_channels = await service.list_due_channels(session)
+            except Exception as e:
+                print(f"❌ due_channels 조회 실패: {e}")
+                return
+
+        if not due_channels:
             return
 
-    if not due_channels:
-        return
+        print(f"📡 YouTube 마스터 폴링: {len(due_channels)}개 채널 처리 시작")
 
-    print(f"📡 YouTube 마스터 폴링: {len(due_channels)}개 채널 처리 시작")
+        poll_sem = asyncio.Semaphore(int(polling_cfg.max_concurrent_channels or 5))
+        api_client = get_youtube_api_client(polling=polling_cfg)
 
-    poll_sem = asyncio.Semaphore(int(polling_cfg.max_concurrent_channels or 5))
-    api_client = get_youtube_api_client(polling=polling_cfg)
+        async def _process_one(channel: YoutubeChannel) -> None:
+            async with poll_sem:
+                timer = JobTimer()
+                with timer:
+                    try:
+                        async with session_factory() as sess:
+                            async with sess.begin():
+                                new_pks = await service.process_channel(
+                                    channel=channel,
+                                    session=sess,
+                                    api_client=api_client,
+                                )
 
-    async def _process_one(channel: YoutubeChannel) -> None:
-        async with poll_sem:
-            timer = JobTimer()
-            with timer:
-                try:
-                    async with session_factory() as sess:
-                        async with sess.begin():
-                            new_pks = await service.process_channel(
-                                channel=channel,
-                                session=sess,
-                                api_client=api_client,
-                            )
+                        await write_job_log(
+                            session_factory,
+                            job_type=_JOB_TYPE_CHANNEL_POLL,
+                            status=_STATUS_SUCCESS,
+                            message=f"신규 영상 {len(new_pks)}건 수집" if new_pks else "신규 영상 없음",
+                            duration_ms=timer.elapsed_ms,
+                            channel_pk=channel.channel_pk,
+                        )
 
-                    await write_job_log(
-                        session_factory,
-                        job_type=_JOB_TYPE_CHANNEL_POLL,
-                        status=_STATUS_SUCCESS,
-                        message=f"신규 영상 {len(new_pks)}건 수집" if new_pks else "신규 영상 없음",
-                        duration_ms=timer.elapsed_ms,
-                        channel_pk=channel.channel_pk,
-                    )
+                    except YouTubeQuotaExceededError as e:
+                        print(f"⚠️  YouTube 쿼터 초과: {e}")
+                        await write_job_log(
+                            session_factory,
+                            job_type=_JOB_TYPE_CHANNEL_POLL,
+                            status=_STATUS_SKIP,
+                            message=f"쿼터 초과: {e}",
+                            duration_ms=timer.elapsed_ms,
+                            channel_pk=channel.channel_pk,
+                        )
+                    except Exception as e:
+                        print(f"❌ 채널 처리 실패 (channel_pk={channel.channel_pk}): {e}")
+                        await write_job_log(
+                            session_factory,
+                            job_type=_JOB_TYPE_CHANNEL_POLL,
+                            status=_STATUS_FAIL,
+                            message=str(e)[:500],
+                            duration_ms=timer.elapsed_ms,
+                            channel_pk=channel.channel_pk,
+                        )
 
-                except YouTubeQuotaExceededError as e:
-                    print(f"⚠️  YouTube 쿼터 초과: {e}")
-                    await write_job_log(
-                        session_factory,
-                        job_type=_JOB_TYPE_CHANNEL_POLL,
-                        status=_STATUS_SKIP,
-                        message=f"쿼터 초과: {e}",
-                        duration_ms=timer.elapsed_ms,
-                        channel_pk=channel.channel_pk,
-                    )
-                except Exception as e:
-                    print(f"❌ 채널 처리 실패 (channel_pk={channel.channel_pk}): {e}")
-                    await write_job_log(
-                        session_factory,
-                        job_type=_JOB_TYPE_CHANNEL_POLL,
-                        status=_STATUS_FAIL,
-                        message=str(e)[:500],
-                        duration_ms=timer.elapsed_ms,
-                        channel_pk=channel.channel_pk,
-                    )
+        try:
+            await asyncio.gather(*[_process_one(ch) for ch in due_channels], return_exceptions=True)
+        finally:
+            await api_client.aclose()
 
-    try:
-        await asyncio.gather(*[_process_one(ch) for ch in due_channels], return_exceptions=True)
+        print("✅ YouTube 마스터 폴링 완료")
     finally:
-        await api_client.aclose()
-
-    print("✅ YouTube 마스터 폴링 완료")
+        await db_engine_manager.dispose_current_loop_engine()
 
 
 async def _youtube_pending_analysis_async() -> None:
@@ -421,28 +424,31 @@ async def _youtube_pending_analysis_async() -> None:
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     batch_limit = 1
 
-    n_reset = 0
-    n_retry = 0
-    claimed: List[int] = []
-    async with session_factory() as sess:
-        async with sess.begin():
-            n_reset = await reset_stale_processing_videos(sess, STALE_PROCESSING_RESET_MINUTES)
-            n_retry = await reset_eligible_failed_videos(sess)
-            claimed = await claim_pending_video_pks(sess, batch_limit)
+    try:
+        n_reset = 0
+        n_retry = 0
+        claimed: List[int] = []
+        async with session_factory() as sess:
+            async with sess.begin():
+                n_reset = await reset_stale_processing_videos(sess, STALE_PROCESSING_RESET_MINUTES)
+                n_retry = await reset_eligible_failed_videos(sess)
+                claimed = await claim_pending_video_pks(sess, batch_limit)
 
-    if n_reset:
-        print(f"♻️  YouTube: 오래된 분석중(processing) 영상 {n_reset}건을 pending으로 복구")
-    if n_retry:
-        print(f"🔄 YouTube: 실패 영상 {n_retry}건을 재시도 대기열(pending)로 복구 "
-              f"(기준: retry_count < {FAILED_RETRY_MAX}, {FAILED_RETRY_WAIT_MINUTES}분 대기)")
+        if n_reset:
+            print(f"♻️  YouTube: 오래된 분석중(processing) 영상 {n_reset}건을 pending으로 복구")
+        if n_retry:
+            print(f"🔄 YouTube: 실패 영상 {n_retry}건을 재시도 대기열(pending)로 복구 "
+                  f"(기준: retry_count < {FAILED_RETRY_MAX}, {FAILED_RETRY_WAIT_MINUTES}분 대기)")
 
-    if not claimed:
-        return
+        if not claimed:
+            return
 
-    print("🧠 YouTube 미분석 배치: 1건 분석 시작")
-    analysis_sem = asyncio.Semaphore(1)
-    await _analyze_batch(claimed, analysis_sem, polling_cfg, engine=engine)
-    print("✅ YouTube 미분석 배치 완료")
+        print("🧠 YouTube 미분석 배치: 1건 분석 시작")
+        analysis_sem = asyncio.Semaphore(1)
+        await _analyze_batch(claimed, analysis_sem, polling_cfg, engine=engine)
+        print("✅ YouTube 미분석 배치 완료")
+    finally:
+        await db_engine_manager.dispose_current_loop_engine()
 
 
 def youtube_pending_analysis_sync() -> None:
@@ -563,39 +569,45 @@ def youtube_master_poll_sync() -> None:
 
 async def _youtube_gateway_health_async() -> None:
     """litellm Gateway 헬스체크 (30분 주기, 실패 시에만 로그 기록)."""
+    engine_acquired = False
     try:
         engine = await db_engine_manager.get_engine()
+        engine_acquired = True
     except Exception:
         engine = None
 
     session_factory = async_sessionmaker(engine, expire_on_commit=False) if engine else None
     timer = JobTimer()
 
-    with timer:
-        client = None
-        try:
-            from app.services.youtube.llm_client import get_litellm_client
+    try:
+        with timer:
+            client = None
+            try:
+                from app.services.youtube.llm_client import get_litellm_client
 
-            mgr = get_youtube_settings_manager()
-            ai_cfg = mgr.get_ai_gateway()
-            if not ai_cfg.base_url or not ai_cfg.api_key:
-                return
-            client = get_litellm_client(settings=ai_cfg)
-            await client.get_models(force_refresh=True)
-            # 정상 시에는 로그 미기록 (실패 시에만 기록)
-        except Exception as e:
-            print(f"⚠️  YouTube Gateway 헬스체크 실패: {e}")
-            if session_factory:
-                await write_job_log(
-                    session_factory,
-                    job_type=_JOB_TYPE_GATEWAY_HEALTH,
-                    status=_STATUS_FAIL,
-                    message=str(e)[:500],
-                    duration_ms=timer.elapsed_ms,
-                )
-        finally:
-            if client is not None:
-                await client.aclose()
+                mgr = get_youtube_settings_manager()
+                ai_cfg = mgr.get_ai_gateway()
+                if not ai_cfg.base_url or not ai_cfg.api_key:
+                    return
+                client = get_litellm_client(settings=ai_cfg)
+                await client.get_models(force_refresh=True)
+                # 정상 시에는 로그 미기록 (실패 시에만 기록)
+            except Exception as e:
+                print(f"⚠️  YouTube Gateway 헬스체크 실패: {e}")
+                if session_factory:
+                    await write_job_log(
+                        session_factory,
+                        job_type=_JOB_TYPE_GATEWAY_HEALTH,
+                        status=_STATUS_FAIL,
+                        message=str(e)[:500],
+                        duration_ms=timer.elapsed_ms,
+                    )
+            finally:
+                if client is not None:
+                    await client.aclose()
+    finally:
+        if engine_acquired:
+            await db_engine_manager.dispose_current_loop_engine()
 
 
 def youtube_gateway_health_sync() -> None:

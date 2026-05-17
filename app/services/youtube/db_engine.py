@@ -518,6 +518,19 @@ class DBEngineManager:
         self._engines[loop] = (engine, sig)
         return engine
 
+    async def dispose_current_loop_engine(self) -> None:
+        """현재 루프의 엔진을 dispose하고 캐시에서 제거.
+
+        APScheduler는 asyncio.run()으로 잡마다 새 이벤트 루프를 생성한다.
+        잡 완료 시 이 메서드를 호출해 PG 연결 슬롯을 즉시 반환해야
+        "remaining connection slots are reserved for superuser" 오류를 막을 수 있다.
+        """
+        loop = asyncio.get_running_loop()
+        if loop in self._engines:
+            engine, _ = self._engines[loop]
+            del self._engines[loop]
+            await engine.dispose()
+
     async def recreate_engine(self) -> None:
         await self._dispose_all_registered()
         # settings cache는 다음 호출에서 다시 읽도록 무효화

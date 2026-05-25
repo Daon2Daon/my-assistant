@@ -9,10 +9,11 @@ litellm Gateway 통합 클라이언트.
 
 from __future__ import annotations
 
+import base64
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import httpx
 
@@ -201,6 +202,67 @@ class LiteLLMClient:
         except Exception as e:
             raise LiteLLMError(f"Gemini 구조화 출력 JSON 파싱 실패: {e}") from e
         return AnalyzerResult(data=data, raw_text=raw_text)
+
+    async def analyze_images_native(
+        self,
+        model: str,
+        images: List[Tuple[bytes, str]],
+        prompt: str,
+        temperature: float | None = None,
+        max_output_tokens: int | None = None,
+    ) -> str:
+        """
+        Gemini Vision (inlineData base64) 다중 이미지 입력 -> 자유 형식 텍스트 반환.
+
+        Args:
+            model: 모델 ID (예: "gemini/gemini-2.5-flash" 또는 "gemini-2.5-flash")
+            images: [(image_bytes, mime_type), ...] 예: [(png_bytes, "image/png"), ...]
+            prompt: 분석 지시 텍스트
+            temperature: 생성 온도 (None 이면 모델 기본값)
+            max_output_tokens: 최대 출력 토큰 수
+
+        Returns:
+            LLM 응답 텍스트 (HTML 또는 마크다운 혼합 가능)
+
+        Raises:
+            LiteLLMError: API 호출 실패 또는 응답 파싱 실패
+        """
+        if not self.api_key:
+            raise LiteLLMError("AI Gateway api_key가 비어 있습니다.")
+        if not images:
+            raise LiteLLMError("분석할 이미지가 없습니다.")
+
+        model_id = model.split("/")[-1] if "/" in model else model
+        url = f"{self.base_url}/gemini/v1beta/models/{model_id}:generateContent"
+
+        parts: List[Dict[str, Any]] = []
+        for image_bytes, mime_type in images:
+            encoded = base64.b64encode(image_bytes).decode("utf-8")
+            parts.append({"inlineData": {"mimeType": mime_type, "data": encoded}})
+        parts.append({"text": prompt})
+
+        body: Dict[str, Any] = {
+            "contents": [{"role": "user", "parts": parts}],
+        }
+        gen_cfg: Dict[str, Any] = {}
+        if temperature is not None:
+            gen_cfg["temperature"] = temperature
+        if max_output_tokens is not None:
+            gen_cfg["maxOutputTokens"] = max_output_tokens
+        if gen_cfg:
+            body["generationConfig"] = gen_cfg
+
+        resp = await self._client.post(url, params={"key": self.api_key}, json=body)
+        if resp.status_code != 200:
+            raise LiteLLMError(
+                f"Gemini 이미지 분석 실패: {resp.status_code} - {resp.text}"
+            )
+
+        raw_text = _pick_text_from_gemini(resp.json())
+        if not raw_text:
+            raise LiteLLMError("Gemini 이미지 분석 응답에서 텍스트를 찾지 못했습니다.")
+
+        return raw_text
 
     async def chat(
         self,

@@ -4,9 +4,10 @@ Chartbot API 라우터
 """
 
 import json
+import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
 
 TZ = ZoneInfo("Asia/Seoul")
 
@@ -62,8 +63,11 @@ from app.crud import (
     get_logs,
 )
 from app.services.bots.chart_bot import chart_bot
+from app.services.bots.chart_analyzer import chart_analyzer, AiAnalysisConfig, DEFAULT_PROMPT
 from app.services.bots.finance_bot import finance_bot
 from app.services.scheduler import scheduler_service
+from app.services.youtube.llm_client import get_litellm_client, LiteLLMError
+from app.services.youtube.settings_manager import mask_secret
 
 
 router = APIRouter(prefix="/api/chartbot", tags=["Chartbot"])
@@ -77,11 +81,38 @@ class ChartSymbolRequest(BaseModel):
     notification_days: List[int] = [0, 1, 2, 3, 4]  # 0=월~6=일 (Python weekday)
 
 
+class AiAnalysisConfigRequest(BaseModel):
+    """AI 기술분석 설정"""
+    enabled: bool = False
+    model: str = "gemini/gemini-2.5-flash"
+    prompt: Optional[str] = None          # None이면 기본 프롬프트 유지
+    include_weekly: bool = True
+    max_output_tokens: int = 2000
+    temperature: float = 0.4
+
+
 class ChartbotConfigUpdateRequest(BaseModel):
     """Chartbot 설정 업데이트 요청"""
     notification_time: Optional[str] = None
     is_active: Optional[bool] = None
-    tickers: Optional[List[dict]] = None  # [{"ticker": "AAPL", "market": "US"}, ...]
+    tickers: Optional[List[dict]] = None
+    ai_analysis: Optional[AiAnalysisConfigRequest] = None
+    litellm_base_url: Optional[str] = None   # 차트봇 전용 LiteLLM Gateway URL
+    litellm_api_key: Optional[str] = None    # 차트봇 전용 API Key (마스킹값이면 미저장)
+
+
+class AnalyzePreviewRequest(BaseModel):
+    """AI 기술분석 미리보기 요청 (텔레그램 미발송)"""
+    ticker: str
+    market: str = "US"
+    daily_path: Optional[str] = None    # 클라이언트 캐시된 차트 경로 (있으면 재사용)
+    weekly_path: Optional[str] = None
+
+
+class TestChartsRequest(BaseModel):
+    """테스트용 차트 생성 요청"""
+    ticker: str
+    market: str = "US"
 
 
 @router.get("/status")
@@ -173,9 +204,21 @@ async def get_chartbot_status(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _default_ai_analysis_dict() -> Dict[str, Any]:
+    """ai_analysis 기본값 딕셔너리"""
+    return {
+        "enabled": False,
+        "model": "gemini/gemini-2.5-flash",
+        "prompt": DEFAULT_PROMPT,
+        "include_weekly": True,
+        "max_output_tokens": 2000,
+        "temperature": 0.4,
+    }
+
+
 @router.get("/settings")
 async def get_chartbot_settings(db: Session = Depends(get_db)):
-    """Chartbot 설정 조회 (설정 페이지용)"""
+    """Chartbot 설정 조회 (설정 페이지용) - ai_analysis 포함"""
     try:
         user = get_or_create_user(db)
         setting = get_setting_by_category(db, user.user_id, "chartbot")
@@ -187,8 +230,26 @@ async def get_chartbot_settings(db: Session = Depends(get_db)):
                     "notification_time": "09:00",
                     "is_active": False,
                     "config_json": json.dumps({"tickers": []}),
+                    "ai_analysis": _default_ai_analysis_dict(),
+                    "default_prompt": DEFAULT_PROMPT,
+                    "litellm_base_url": "",
+                    "litellm_api_key_masked": "",
                 }
             )
+
+        config = {}
+        if setting.config_json:
+            try:
+                config = json.loads(setting.config_json)
+            except Exception:
+                pass
+
+        # ai_analysis 없으면 기본값 제공 (기존 설정과 병합)
+        ai_analysis = _default_ai_analysis_dict()
+        ai_analysis.update(config.get("ai_analysis") or {})
+
+        litellm_base_url = config.get("litellm_base_url", "")
+        litellm_api_key_masked = mask_secret(config.get("litellm_api_key", ""))
 
         return JSONResponse(
             content={
@@ -196,6 +257,10 @@ async def get_chartbot_settings(db: Session = Depends(get_db)):
                 "notification_time": setting.notification_time,
                 "is_active": setting.is_active,
                 "config_json": setting.config_json or "{}",
+                "ai_analysis": ai_analysis,
+                "default_prompt": DEFAULT_PROMPT,
+                "litellm_base_url": litellm_base_url,
+                "litellm_api_key_masked": litellm_api_key_masked,
             }
         )
 
@@ -212,16 +277,41 @@ async def update_chartbot_settings(
         user = get_or_create_user(db)
         setting = get_setting_by_category(db, user.user_id, "chartbot")
 
-        config_json = None
+        # 기존 config 로드
+        existing_config: Dict[str, Any] = {}
+        if setting and setting.config_json:
+            try:
+                existing_config = json.loads(setting.config_json)
+            except Exception:
+                pass
+
+        config_changed = False
+
         if request.tickers is not None:
-            existing_config = {}
-            if setting and setting.config_json:
-                try:
-                    existing_config = json.loads(setting.config_json)
-                except Exception:
-                    pass
             existing_config["tickers"] = request.tickers
-            config_json = json.dumps(existing_config)
+            config_changed = True
+
+        if request.litellm_base_url is not None:
+            existing_config["litellm_base_url"] = request.litellm_base_url.strip()
+            config_changed = True
+
+        if request.litellm_api_key is not None:
+            # 마스킹된 값(*로 시작)이면 기존 키 유지, 새 값이면 저장
+            if not request.litellm_api_key.startswith("*"):
+                existing_config["litellm_api_key"] = request.litellm_api_key.strip()
+                config_changed = True
+
+        if request.ai_analysis is not None:
+            ai_dict = request.ai_analysis.model_dump()
+            # prompt가 None이면 기존 값 또는 기본 프롬프트 유지
+            if ai_dict.get("prompt") is None:
+                ai_dict["prompt"] = (
+                    existing_config.get("ai_analysis", {}).get("prompt") or DEFAULT_PROMPT
+                )
+            existing_config["ai_analysis"] = ai_dict
+            config_changed = True
+
+        config_json = json.dumps(existing_config) if config_changed else None
 
         if not setting:
             create_setting(
@@ -514,6 +604,147 @@ async def preview_chart(ticker: str, market: str = "US", days: int = 30):
                 "market": market,
             }
         )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/llm/models")
+async def get_llm_models():
+    """LiteLLM Gateway의 사용 가능한 모델 목록 조회 (AI 분석 모델 드롭다운용)"""
+    try:
+        client = get_litellm_client()
+        models_resp = await client.get_models()
+        model_ids = [m.id for m in models_resp.models]
+        return JSONResponse(content={"models": model_ids, "count": len(model_ids)})
+    except LiteLLMError as e:
+        # Gateway 미연결 등 → 빈 목록으로 graceful 처리
+        return JSONResponse(content={"models": [], "count": 0, "error": str(e)})
+    except Exception as e:
+        return JSONResponse(content={"models": [], "count": 0, "error": str(e)})
+
+
+def _path_to_url(abs_path: Optional[str]) -> Optional[str]:
+    """차트 절대 경로 → 정적 URL 변환"""
+    if not abs_path:
+        return None
+    import os
+    return f"/static/charts/{os.path.basename(abs_path)}"
+
+
+@router.post("/test-charts")
+async def generate_test_charts(request: TestChartsRequest):
+    """
+    테스트용 ta-charts (일봉+주봉) 생성.
+    - 같은 ticker+market의 이전 테스트 파일 자동 삭제
+    - 파일은 분석 재사용을 위해 디스크에 유지 (실발송과 달리 즉시 삭제 안 함)
+    """
+    try:
+        ticker = request.ticker.strip().upper()
+        if not ticker:
+            raise HTTPException(status_code=400, detail="티커를 입력해주세요")
+        market = request.market or "US"
+        name = chart_bot._get_name(ticker, market)
+
+        charts = chart_bot.generate_test_charts(ticker, market, name)
+        if not charts:
+            raise HTTPException(status_code=500, detail=f"차트 생성 실패: {ticker}")
+
+        return JSONResponse(content={
+            "ticker": ticker,
+            "market": market,
+            "name": name,
+            "charts": [
+                {"path": abs_path, "url": f"/static/{rel_url}", "label": label}
+                for abs_path, rel_url, label in charts
+            ],
+        })
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/analyze-preview")
+async def analyze_chart_preview(request: AnalyzePreviewRequest):
+    """
+    AI 기술분석 미리보기 - 분석 텍스트 + 차트 URL 반환 (텔레그램 미발송).
+    클라이언트가 daily_path/weekly_path를 전달하면 캐시 차트를 재사용.
+    없거나 무효하면 새 차트 생성.
+    """
+    import os
+    try:
+        ticker = request.ticker.strip().upper()
+        if not ticker:
+            raise HTTPException(status_code=400, detail="티커를 입력해주세요")
+        market = request.market or "US"
+        name = chart_bot._get_name(ticker, market)
+
+        # 1. 캐시 차트 검증 (경로 안전성 + 파일 존재)
+        daily_path: Optional[str] = None
+        weekly_path: Optional[str] = None
+        cached_used = False
+
+        if request.daily_path and request.weekly_path:
+            if (chart_bot.is_safe_chart_path(request.daily_path)
+                and os.path.exists(request.daily_path)
+                and chart_bot.is_safe_chart_path(request.weekly_path)
+                and os.path.exists(request.weekly_path)):
+                daily_path = request.daily_path
+                weekly_path = request.weekly_path
+                cached_used = True
+
+        # 2. 캐시 미스 → 새 차트 생성
+        if not cached_used:
+            charts = chart_bot.generate_test_charts(ticker, market, name)
+            if not charts:
+                raise HTTPException(status_code=500, detail=f"차트 생성 실패: {ticker}")
+            daily_path = charts[0][0] if len(charts) > 0 else None
+            weekly_path = charts[1][0] if len(charts) > 1 else None
+
+        # 3. AI 분석 (파일은 분석 후에도 유지 → 캐시 재사용 가능)
+        t0 = time.monotonic()
+        analysis_html = await chart_analyzer.analyze(
+            daily_path=daily_path,
+            weekly_path=weekly_path,
+            ticker=ticker,
+            name=name,
+            market=market,
+        )
+        elapsed = round(time.monotonic() - t0, 1)
+
+        if not analysis_html:
+            raise HTTPException(
+                status_code=503,
+                detail="AI 분석 실패: LLM 설정을 확인하거나 AI 기술분석이 활성화되어 있는지 확인하세요",
+            )
+
+        # 4. 차트 메타 (항상 반환 → 클라이언트가 화면 갱신 가능)
+        charts_meta = []
+        if daily_path:
+            charts_meta.append({
+                "path": daily_path,
+                "url": _path_to_url(daily_path),
+                "label": "일봉 (1년)",
+            })
+        if weekly_path:
+            charts_meta.append({
+                "path": weekly_path,
+                "url": _path_to_url(weekly_path),
+                "label": "주봉 (5년)",
+            })
+
+        return JSONResponse(content={
+            "ticker": ticker,
+            "market": market,
+            "name": name,
+            "analysis_html": analysis_html,
+            "elapsed_sec": elapsed,
+            "cached_charts_used": cached_used,
+            "charts": charts_meta,
+        })
 
     except HTTPException:
         raise

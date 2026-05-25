@@ -2,16 +2,27 @@
 // notification_days: 0=월, 1=화, 2=수, 3=목, 4=금, 5=토, 6=일 (Python weekday)
 var DAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'];
 
+// 기본 프롬프트 (서버에서 로드 후 저장)
+var _defaultPrompt = '';
+
 document.addEventListener('DOMContentLoaded', function() {
     loadChartbotStatus();
     loadChartbotSettings();
     loadTickers();
     loadLogs();
+    loadLlmModels();
 
     const activeToggle = document.getElementById('chartbot-active-toggle');
     activeToggle.addEventListener('change', async function() {
         await toggleChartbotActive(this.checked);
     });
+
+    const aiToggle = document.getElementById('ai-analysis-toggle');
+    if (aiToggle) {
+        aiToggle.addEventListener('change', function() {
+            updateAiAnalysisUiState(this.checked);
+        });
+    }
 
     var tickerInput = document.getElementById('ticker-input');
     var marketSelect = document.getElementById('market-select');
@@ -108,6 +119,46 @@ async function loadChartbotSettings() {
 
         const activeToggle = document.getElementById('chartbot-active-toggle');
         activeToggle.checked = data.is_active;
+
+        // 기본 프롬프트 저장 (복원 버튼용)
+        if (data.default_prompt) {
+            _defaultPrompt = data.default_prompt;
+        }
+
+        // LiteLLM 연결 설정
+        const baseUrlInput = document.getElementById('litellm-base-url');
+        const apiKeyInput = document.getElementById('litellm-api-key');
+        if (baseUrlInput) baseUrlInput.value = data.litellm_base_url || '';
+        if (apiKeyInput) apiKeyInput.value = data.litellm_api_key_masked || '';
+
+        // AI 분석 설정 반영
+        const ai = data.ai_analysis || {};
+        const aiToggle = document.getElementById('ai-analysis-toggle');
+        const aiModel = document.getElementById('ai-model-select');
+        const aiTemp = document.getElementById('ai-temperature');
+        const aiMaxTokens = document.getElementById('ai-max-tokens');
+        const aiIncludeWeekly = document.getElementById('ai-include-weekly');
+        const aiPrompt = document.getElementById('ai-prompt');
+
+        if (aiToggle) aiToggle.checked = !!ai.enabled;
+        if (aiTemp) aiTemp.value = ai.temperature !== undefined ? ai.temperature : 0.4;
+        if (aiMaxTokens) aiMaxTokens.value = ai.max_output_tokens || 2000;
+        if (aiIncludeWeekly) aiIncludeWeekly.checked = ai.include_weekly !== false;
+        if (aiPrompt) aiPrompt.value = ai.prompt || _defaultPrompt;
+
+        // 모델 드롭다운: 서버에서 받은 값이 있으면 선택
+        if (aiModel && ai.model) {
+            // 옵션에 없으면 추가
+            if (!Array.from(aiModel.options).some(o => o.value === ai.model)) {
+                const opt = document.createElement('option');
+                opt.value = ai.model;
+                opt.textContent = ai.model;
+                aiModel.appendChild(opt);
+            }
+            aiModel.value = ai.model;
+        }
+
+        updateAiAnalysisUiState(!!ai.enabled);
     } catch (error) {
         console.error('Failed to load chartbot settings:', error);
     }
@@ -131,6 +182,308 @@ async function saveSettings() {
     } catch (error) {
         console.error('Failed to save settings:', error);
         showToast(error.message || '설정 저장에 실패했습니다', 'error');
+    }
+}
+
+// ── AI 기술분석 관련 함수 ──────────────────────────────────────
+
+function updateAiAnalysisUiState(enabled) {
+    const label = document.getElementById('ai-analysis-toggle-label');
+    const optionsSection = document.getElementById('ai-analysis-options');
+    const promptSection = document.getElementById('ai-prompt-section');
+
+    if (label) {
+        label.textContent = enabled ? '활성' : '비활성';
+        label.className = enabled ? 'form-check-label text-success fw-bold' : 'form-check-label text-secondary';
+    }
+    [optionsSection, promptSection].forEach(function(el) {
+        if (!el) return;
+        if (enabled) {
+            el.classList.remove('disabled-section');
+        } else {
+            el.classList.add('disabled-section');
+        }
+    });
+}
+
+async function loadLlmModels() {
+    const modelSelect = document.getElementById('ai-model-select');
+    if (!modelSelect) return;
+
+    try {
+        const data = await fetchApi('/api/chartbot/llm/models');
+        if (!data.models || data.models.length === 0) return;
+
+        // 현재 선택값 보존
+        const currentVal = modelSelect.value;
+        modelSelect.innerHTML = '';
+        data.models.forEach(function(modelId) {
+            const opt = document.createElement('option');
+            opt.value = modelId;
+            opt.textContent = modelId;
+            modelSelect.appendChild(opt);
+        });
+
+        // 이전 선택값 복원 (있으면)
+        if (currentVal && Array.from(modelSelect.options).some(o => o.value === currentVal)) {
+            modelSelect.value = currentVal;
+        }
+    } catch (e) {
+        console.warn('LLM 모델 목록 로드 실패:', e);
+    }
+}
+
+async function saveLitellmSettings() {
+    const baseUrlInput = document.getElementById('litellm-base-url');
+    const apiKeyInput = document.getElementById('litellm-api-key');
+
+    const payload = {
+        litellm_base_url: baseUrlInput ? baseUrlInput.value.trim() : '',
+        litellm_api_key: apiKeyInput ? apiKeyInput.value : '',
+    };
+
+    try {
+        await fetchApi('/api/chartbot/settings', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+        showToast('LiteLLM 연결 설정이 저장되었습니다', 'success');
+        // 저장 후 마스킹된 값으로 갱신
+        await loadChartbotSettings();
+        // 모델 목록도 새로 로드 (연결 변경 반영)
+        await loadLlmModels();
+    } catch (error) {
+        showToast(error.message || 'LiteLLM 설정 저장 실패', 'error');
+    }
+}
+
+async function saveAiAnalysis() {
+    const aiToggle = document.getElementById('ai-analysis-toggle');
+    const aiModel = document.getElementById('ai-model-select');
+    const aiTemp = document.getElementById('ai-temperature');
+    const aiMaxTokens = document.getElementById('ai-max-tokens');
+    const aiIncludeWeekly = document.getElementById('ai-include-weekly');
+    const aiPrompt = document.getElementById('ai-prompt');
+
+    const payload = {
+        ai_analysis: {
+            enabled: aiToggle ? aiToggle.checked : false,
+            model: aiModel ? aiModel.value : 'gemini/gemini-2.5-flash',
+            prompt: aiPrompt ? aiPrompt.value : null,
+            include_weekly: aiIncludeWeekly ? aiIncludeWeekly.checked : true,
+            max_output_tokens: aiMaxTokens ? parseInt(aiMaxTokens.value, 10) : 2000,
+            temperature: aiTemp ? parseFloat(aiTemp.value) : 0.4,
+        },
+    };
+
+    try {
+        await fetchApi('/api/chartbot/settings', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+        showToast('AI 분석 설정이 저장되었습니다', 'success');
+    } catch (error) {
+        showToast(error.message || 'AI 분석 설정 저장 실패', 'error');
+    }
+}
+
+function restoreDefaultPrompt() {
+    const aiPrompt = document.getElementById('ai-prompt');
+    if (!aiPrompt) return;
+    if (!_defaultPrompt) {
+        showToast('기본 프롬프트를 불러오는 중입니다. 잠시 후 다시 시도해주세요.', 'warning');
+        return;
+    }
+    if (!confirm('현재 프롬프트를 기본값으로 되돌리시겠습니까?')) return;
+    aiPrompt.value = _defaultPrompt;
+    showToast('기본 프롬프트로 복원되었습니다', 'success');
+}
+
+// ── 통합 테스트 패널 (차트 생성 → AI 분석 → 텔레그램 발송) ────
+
+// 마지막 생성한 차트 컨텍스트 (AI 분석 재사용용)
+var _lastChartContext = null;  // {ticker, market, name, charts: [{path, url, label}, ...]}
+
+function _getTestInputs() {
+    const tickerInput = document.getElementById('test-ticker');
+    const marketSelect = document.getElementById('test-market');
+    return {
+        ticker: tickerInput ? tickerInput.value.trim().toUpperCase() : '',
+        market: marketSelect ? marketSelect.value : 'US',
+    };
+}
+
+function _renderChartsHtml(name, ticker, charts) {
+    let html = '<div class="mb-2 text-muted small">' +
+        '<i class="bi bi-person-circle me-1"></i>' + (name || ticker) + ' (' + ticker + ')</div>';
+    (charts || []).forEach(function(c) {
+        html += '<div class="text-center mb-3">' +
+            '<img src="' + c.url + '" alt="' + c.label + '" class="img-fluid" style="max-height: 380px;">' +
+            '<p class="text-muted small mt-1 mb-0">' + c.label + '</p>' +
+            '</div>';
+    });
+    return html;
+}
+
+function _setTestBtnState(btnId, busy, originalHtml) {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    if (busy) {
+        btn.dataset.origHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>처리 중...';
+    } else {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml || btn.dataset.origHtml || btn.innerHTML;
+    }
+}
+
+function _setTestResult(html) {
+    const resultEl = document.getElementById('test-result');
+    if (resultEl) resultEl.innerHTML = html;
+}
+
+async function runTestChart() {
+    const { ticker, market } = _getTestInputs();
+    if (!ticker) { showToast('티커를 입력해주세요', 'warning'); return; }
+
+    _setTestBtnState('btn-test-chart', true);
+    _setTestResult('<div class="text-muted"><span class="spinner-border spinner-border-sm me-2"></span>일봉+주봉 차트 생성 중...</div>');
+
+    try {
+        const data = await fetchApi('/api/chartbot/test-charts', {
+            method: 'POST',
+            body: JSON.stringify({ ticker: ticker, market: market }),
+        });
+
+        const charts = data.charts || [];
+        _setTestResult(_renderChartsHtml(data.name, data.ticker, charts));
+
+        // 컨텍스트 캐시 (AI 분석에서 재사용)
+        _lastChartContext = {
+            ticker: ticker,
+            market: market,
+            name: data.name,
+            charts: charts,
+        };
+    } catch (error) {
+        _setTestResult(
+            '<div class="text-danger"><i class="bi bi-exclamation-triangle me-1"></i>' +
+            (error.message || '차트 생성 실패') + '</div>'
+        );
+    } finally {
+        _setTestBtnState('btn-test-chart', false, '<i class="bi bi-bar-chart me-1"></i>1) 차트 생성');
+    }
+}
+
+async function runTestAi() {
+    const { ticker, market } = _getTestInputs();
+    if (!ticker) { showToast('티커를 입력해주세요', 'warning'); return; }
+
+    _setTestBtnState('btn-test-ai', true);
+
+    // 캐시 유효성 검사 (같은 ticker+market의 차트가 있을 때 재사용)
+    const cacheValid = _lastChartContext
+        && _lastChartContext.ticker === ticker
+        && _lastChartContext.market === market
+        && _lastChartContext.charts
+        && _lastChartContext.charts.length > 0;
+
+    // 로딩 표시 (캐시가 있으면 차트는 유지하고 그 아래에 로딩, 없으면 전체 영역에 로딩)
+    const loadingMsg = cacheValid
+        ? '기존 차트로 AI 분석 중... (10~30초)'
+        : '차트 생성 + AI 분석 중... (10~30초)';
+    const loadingHtml = '<div class="text-muted"><span class="spinner-border spinner-border-sm me-2"></span>' + loadingMsg + '</div>';
+
+    if (cacheValid) {
+        _setTestResult(
+            _renderChartsHtml(_lastChartContext.name, ticker, _lastChartContext.charts) +
+            '<hr class="my-3">' + loadingHtml
+        );
+    } else {
+        _setTestResult(loadingHtml);
+    }
+
+    // 페이로드 구성 (캐시가 있으면 경로 전달)
+    const payload = { ticker: ticker, market: market };
+    if (cacheValid) {
+        const daily = _lastChartContext.charts[0];
+        const weekly = _lastChartContext.charts[1];
+        if (daily) payload.daily_path = daily.path;
+        if (weekly) payload.weekly_path = weekly.path;
+    }
+
+    try {
+        const data = await fetchApi('/api/chartbot/analyze-preview', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+
+        // 차트 (서버가 항상 반환) + AI 분석 결과
+        const chartsHtml = _renderChartsHtml(data.name, data.ticker, data.charts || []);
+        const aiHtml =
+            '<hr class="my-3">' +
+            '<div class="mb-2 text-muted small">' +
+            '<i class="bi bi-robot me-1"></i>AI 분석 결과 · ' +
+            '<i class="bi bi-clock me-1"></i>' + data.elapsed_sec + '초' +
+            (data.cached_charts_used ? ' · <i class="bi bi-recycle me-1"></i>기존 차트 재사용' : '') +
+            '</div>' +
+            '<div style="white-space: pre-wrap; font-size: 0.88rem;">' +
+            (data.analysis_html || '') + '</div>';
+
+        _setTestResult(chartsHtml + aiHtml);
+
+        // 캐시 갱신 (서버가 새 차트 생성했을 수 있음)
+        _lastChartContext = {
+            ticker: ticker,
+            market: market,
+            name: data.name,
+            charts: data.charts || [],
+        };
+    } catch (error) {
+        const errHtml = '<div class="text-danger mt-2"><i class="bi bi-exclamation-triangle me-1"></i>' +
+            (error.message || 'AI 분석 실패 (AI 기술분석이 활성화되어 있는지 확인하세요)') + '</div>';
+        if (cacheValid) {
+            // 차트는 유지하고 에러만 표시
+            _setTestResult(
+                _renderChartsHtml(_lastChartContext.name, ticker, _lastChartContext.charts) +
+                '<hr class="my-3">' + errHtml
+            );
+        } else {
+            _setTestResult(errHtml);
+        }
+    } finally {
+        _setTestBtnState('btn-test-ai', false, '<i class="bi bi-robot me-1"></i>2) AI 분석');
+    }
+}
+
+async function runTestSend() {
+    const { ticker, market } = _getTestInputs();
+    if (!ticker) { showToast('티커를 입력해주세요', 'warning'); return; }
+
+    _setTestBtnState('btn-test-send', true);
+    _setTestResult('<div class="text-muted"><span class="spinner-border spinner-border-sm me-2"></span>텔레그램 발송 중...</div>');
+
+    try {
+        const data = await fetchApi('/api/chartbot/test', {
+            method: 'POST',
+            body: JSON.stringify({ ticker: ticker, market: market }),
+        });
+        _setTestResult(
+            '<div class="alert alert-success mb-0">' +
+            '<i class="bi bi-check-circle me-1"></i>발송 완료 (' + ticker + ')<br>' +
+            '<small>성공: ' + data.success + '건 · 실패: ' + data.fail + '건</small>' +
+            '</div>'
+        );
+        loadLogs();
+        loadChartbotStatus();
+    } catch (error) {
+        _setTestResult(
+            '<div class="alert alert-danger mb-0"><i class="bi bi-exclamation-triangle me-1"></i>' +
+            (error.message || '발송 실패') + '</div>'
+        );
+    } finally {
+        _setTestBtnState('btn-test-send', false, '<i class="bi bi-send me-1"></i>텔레그램 발송');
     }
 }
 
@@ -303,89 +656,6 @@ async function toggleChartbotActive(checked) {
     } catch (error) {
         showToast(error.message || '설정 변경에 실패했습니다', 'error');
         document.getElementById('chartbot-active-toggle').checked = !checked;
-    }
-}
-
-async function testChartbot() {
-    const tickerInput = document.getElementById('preview-ticker');
-    const marketSelect = document.getElementById('preview-market');
-    const ticker = tickerInput ? tickerInput.value.trim().toUpperCase() : '';
-    const market = marketSelect ? marketSelect.value : 'US';
-
-    if (!ticker) {
-        showToast('티커를 입력해주세요', 'warning');
-        return;
-    }
-
-    const btn = document.getElementById('test-send-btn');
-    const resultEl = document.getElementById('test-result');
-
-    if (btn && btn.disabled) return;
-
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>발송 중...';
-    }
-    resultEl.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> 발송 중...';
-
-    try {
-        const data = await fetchApi('/api/chartbot/test', {
-            method: 'POST',
-            body: JSON.stringify({ ticker: ticker, market: market }),
-        });
-
-        resultEl.innerHTML = `
-            <div class="alert alert-success mb-0">
-                <i class="bi bi-check-circle me-1"></i>발송 완료 (${ticker})<br>
-                <small>성공: ${data.success}건, 실패: ${data.fail}건</small>
-            </div>
-        `;
-        loadLogs();
-        loadChartbotStatus();
-    } catch (error) {
-        resultEl.innerHTML = `
-            <div class="alert alert-danger mb-0">
-                <i class="bi bi-exclamation-triangle me-1"></i>${error.message || '발송 실패'}
-            </div>
-        `;
-    } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-send me-1"></i>테스트 발송';
-        }
-    }
-}
-
-async function previewChart() {
-    const tickerInput = document.getElementById('preview-ticker');
-    const ticker = tickerInput.value.trim().toUpperCase();
-    const marketSelect = document.getElementById('preview-market');
-    const market = marketSelect ? marketSelect.value : 'US';
-    const periodSelect = document.getElementById('preview-period');
-    const days = periodSelect ? periodSelect.value : '30';
-    const periodLabel = periodSelect ? periodSelect.options[periodSelect.selectedIndex].text : '1개월';
-
-    if (!ticker) {
-        showToast('티커를 입력해주세요', 'warning');
-        return;
-    }
-
-    const previewEl = document.getElementById('chart-preview');
-    previewEl.innerHTML = '<div class="spinner-border text-primary" role="status"></div>';
-
-    try {
-        const data = await fetchApi(`/api/chartbot/preview/${encodeURIComponent(ticker)}?market=${market}&days=${days}`);
-
-        previewEl.innerHTML = `
-            <img src="${data.chart_path}" alt="${ticker} chart" class="img-fluid" style="max-height: 300px;">
-            <p class="text-muted small mt-2 mb-0">${ticker} (${market}) - 최근 ${periodLabel}</p>
-        `;
-    } catch (error) {
-        previewEl.innerHTML = `
-            <div class="text-danger">
-                <i class="bi bi-exclamation-triangle me-1"></i>${error.message || '차트 생성 실패'}
-            </div>
-        `;
     }
 }
 

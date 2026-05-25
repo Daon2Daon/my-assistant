@@ -116,49 +116,140 @@
     </div>
 </div>
 
-<!-- 차트 미리보기 -->
+<!-- 차트 & AI 테스트 (통합 미리보기) -->
 <div class="row mb-4">
     <div class="col-12">
         <div class="card">
             <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-eye me-2"></i>차트 미리보기</h5>
+                <h5 class="mb-0"><i class="bi bi-eye me-2"></i>차트 & AI 테스트</h5>
             </div>
             <div class="card-body">
-                <div class="row mb-2">
-                    <div class="col-md-2 mb-2">
-                        <input type="text" class="form-control form-control-sm" id="preview-ticker" placeholder="AAPL">
+                <div class="row g-2 mb-3">
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold mb-1">종목</label>
+                        <input type="text" class="form-control form-control-sm" id="test-ticker" placeholder="AAPL">
                     </div>
-                    <div class="col-md-2 mb-2">
-                        <select class="form-select form-select-sm" id="preview-market">
+                    <div class="col-md-1">
+                        <label class="form-label small fw-bold mb-1">시장</label>
+                        <select class="form-select form-select-sm" id="test-market">
                             <option value="US">US</option>
                             <option value="KR">KR</option>
                         </select>
                     </div>
-                    <div class="col-md-2 mb-2">
-                        <select class="form-select form-select-sm" id="preview-period">
-                            <option value="30" selected>1개월</option>
-                            <option value="90">3개월</option>
-                            <option value="180">6개월</option>
-                            <option value="365">1년</option>
-                            <option value="1825">5년</option>
+                    <div class="col-md-9 d-flex align-items-end gap-2">
+                        <button class="btn btn-sm btn-outline-primary" id="btn-test-chart" onclick="runTestChart()">
+                            <i class="bi bi-bar-chart me-1"></i>1) 차트 생성
+                        </button>
+                        <button class="btn btn-sm btn-outline-info" id="btn-test-ai" onclick="runTestAi()">
+                            <i class="bi bi-robot me-1"></i>2) AI 분석
+                        </button>
+                        <button class="btn btn-sm btn-success" id="btn-test-send" onclick="runTestSend()">
+                            <i class="bi bi-send me-1"></i>텔레그램 발송
+                        </button>
+                    </div>
+                </div>
+                <p class="text-muted small mb-2">
+                    <i class="bi bi-info-circle me-1"></i>
+                    <b>차트 생성</b> → 실발송과 동일한 일봉+주봉 차트 생성 ·
+                    <b>AI 분석</b> → 직전 차트를 그대로 사용해 분석 (없으면 자동 생성) ·
+                    <b>텔레그램 발송</b> → 실제 발송 (AI 활성 시 분석 메시지 포함)
+                </p>
+                <div id="test-result" class="mt-3 p-3 bg-light rounded" style="min-height: 100px;">
+                    <span class="text-muted">종목을 입력하고 위 버튼 중 하나를 클릭하세요</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- AI 기술분석 설정 -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-robot me-2"></i>AI 기술분석</h5>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="ai-analysis-toggle">
+                    <label class="form-check-label" id="ai-analysis-toggle-label">비활성</label>
+                </div>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">차트 발송 시 AI가 일봉·주봉 차트를 종합 분석하여 기술분석 코멘트를 텔레그램으로 함께 발송합니다.</p>
+
+                <!-- LiteLLM 연결 설정 -->
+                <div class="border rounded p-3 mb-4 bg-light">
+                    <h6 class="mb-3"><i class="bi bi-plug me-2"></i>LiteLLM Gateway 연결</h6>
+                    <p class="text-muted small mb-3">비워두면 유튜브봇 AI Gateway 설정을 공유합니다. 차트봇 전용 연결이 필요한 경우에만 입력하세요.</p>
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            <label class="form-label fw-bold">Base URL</label>
+                            <input type="text" class="form-control" id="litellm-base-url"
+                                   placeholder="http://litellm:4000 (비워두면 유튜브봇 설정 사용)">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <label class="form-label fw-bold">API Key</label>
+                            <input type="password" class="form-control" id="litellm-api-key"
+                                   placeholder="비워두면 유튜브봇 설정 사용" autocomplete="new-password">
+                            <small class="text-muted">저장 후 마스킹 표시됩니다</small>
+                        </div>
+                        <div class="col-md-2 mb-2 d-flex align-items-end">
+                            <button class="btn btn-outline-secondary w-100" onclick="saveLitellmSettings()">
+                                <i class="bi bi-save me-1"></i>저장
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 분석 옵션 -->
+                <div class="row mb-3" id="ai-analysis-options">
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label fw-bold">분석 모델</label>
+                        <select class="form-select" id="ai-model-select">
+                            <option value="gemini/gemini-2.5-flash">gemini/gemini-2.5-flash</option>
                         </select>
+                        <small class="text-muted">LiteLLM Gateway에서 사용 가능한 모델 목록</small>
                     </div>
-                    <div class="col-md-2 mb-2">
-                        <button class="btn btn-sm btn-outline-primary w-100" onclick="previewChart()">
-                            <i class="bi bi-eye me-1"></i>미리보기
-                        </button>
+                    <div class="col-md-2 mb-3">
+                        <label class="form-label fw-bold">Temperature</label>
+                        <input type="number" class="form-control" id="ai-temperature"
+                               value="0.4" min="0" max="2" step="0.1">
+                        <small class="text-muted">0~2, 낮을수록 일관된 출력</small>
                     </div>
-                    <div class="col-md-2 mb-2">
-                        <button class="btn btn-sm btn-success w-100" id="test-send-btn" onclick="testChartbot()">
-                            <i class="bi bi-send me-1"></i>테스트 발송
-                        </button>
+                    <div class="col-md-2 mb-3">
+                        <label class="form-label fw-bold">Max Tokens</label>
+                        <input type="number" class="form-control" id="ai-max-tokens"
+                               value="2000" min="200" max="8192" step="100">
+                        <small class="text-muted">출력 최대 토큰 수</small>
+                    </div>
+                    <div class="col-md-4 mb-3 d-flex align-items-center pt-4">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="ai-include-weekly" checked>
+                            <label class="form-check-label" for="ai-include-weekly">
+                                주봉 차트도 함께 분석 (일봉 + 주봉 교차 분석)
+                            </label>
+                        </div>
                     </div>
                 </div>
-                <p class="text-muted small mb-2">종목을 입력하고 미리보기를 클릭한 후, 테스트 발송으로 텔레그램에 발송할 수 있습니다</p>
-                <div id="chart-preview" class="mt-2 text-center" style="min-height: 200px;">
-                    <span class="text-muted">종목을 입력하고 미리보기를 클릭하세요</span>
+
+                <!-- 프롬프트 편집 -->
+                <div class="mb-3" id="ai-prompt-section">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="form-label fw-bold mb-0">분석 프롬프트</label>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="restoreDefaultPrompt()">
+                            <i class="bi bi-arrow-counterclockwise me-1"></i>기본값 복원
+                        </button>
+                    </div>
+                    <textarea class="form-control font-monospace" id="ai-prompt" rows="10"
+                              style="font-size: 0.82rem; resize: vertical;"></textarea>
+                    <small class="text-muted">AI에게 전달할 분석 지시 프롬프트. 종목 정보와 이미지 순서는 자동으로 앞에 추가됩니다.</small>
                 </div>
-                <div id="test-result" class="mt-3"></div>
+
+                <div class="mb-2">
+                    <button class="btn btn-primary" onclick="saveAiAnalysis()">
+                        <i class="bi bi-save me-1"></i>AI 분석 설정 저장
+                    </button>
+                    <small class="text-muted ms-2">테스트는 위 '차트 & AI 테스트' 섹션에서 실행하세요</small>
+                </div>
             </div>
         </div>
     </div>
@@ -214,6 +305,14 @@
     .ticker-item { flex-wrap: wrap; }
     .ticker-item .ticker-info { flex: 1 1 100%; width: auto; }
 }
+/* AI 기술분석 */
+#ai-analysis-options.disabled-section,
+#ai-prompt-section.disabled-section { opacity: 0.45; pointer-events: none; }
+/* AI 분석 결과 (통합 테스트 패널 내) */
+#test-result b  { font-weight: 700; }
+#test-result i  { font-style: italic; }
+#test-result code { background: #f0f0f0; padding: 1px 4px; border-radius: 3px; font-size: 0.82em; }
+#test-result pre  { background: #f8f9fa; padding: 8px; border-radius: 4px; font-size: 0.82em; overflow-x: auto; }
 </style>
 {% endblock %}
 

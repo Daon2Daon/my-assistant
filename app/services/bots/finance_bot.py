@@ -24,20 +24,33 @@ from app.services.notification import notification_service
 def _is_trading_day(market: str) -> bool:
     """오늘이 해당 시장의 거래일인지 확인한다 (주말·공휴일 모두 제외).
 
-    pandas_market_calendars의 NYSE/KRX 공식 캘린더를 사용한다.
+    미국(US): pandas_market_calendars의 NYSE 캘린더 사용.
+    한국(KR): pykrx의 당일 KOSPI 종목 목록 조회 결과로 판단.
     라이브러리 오류 시 True를 반환해 발송을 차단하지 않는다.
     """
-    try:
-        import pandas_market_calendars as mcal
-        cal_name = "NYSE" if market == "US" else "KRX"
-        tz = ZoneInfo("America/New_York" if market == "US" else "Asia/Seoul")
-        today = datetime.now(tz).strftime("%Y-%m-%d")
-        cal = mcal.get_calendar(cal_name)
-        schedule = cal.schedule(start_date=today, end_date=today)
-        return not schedule.empty
-    except Exception as e:
-        print(f"⚠️  거래일 체크 실패 ({market}): {e} — 발송 허용으로 처리")
-        return True
+    if market == "US":
+        try:
+            import pandas_market_calendars as mcal
+            today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+            cal = mcal.get_calendar("NYSE")
+            schedule = cal.schedule(start_date=today, end_date=today)
+            return not schedule.empty
+        except Exception as e:
+            print(f"⚠️  거래일 체크 실패 (US): {e} — 발송 허용으로 처리")
+            return True
+    else:
+        # KR: pandas_market_calendars는 KRX를 지원하지 않으므로 pykrx로 직접 확인
+        try:
+            kr_now = datetime.now(ZoneInfo("Asia/Seoul"))
+            # 주말은 API 호출 없이 즉시 반환
+            if kr_now.weekday() >= 5:
+                return False
+            date_str = kr_now.strftime("%Y%m%d")
+            tickers = stock.get_market_ticker_list(date_str, market="KOSPI")
+            return len(tickers) > 0
+        except Exception as e:
+            print(f"⚠️  거래일 체크 실패 (KR): {e} — 발송 허용으로 처리")
+            return True
 
 
 class FinanceBot:

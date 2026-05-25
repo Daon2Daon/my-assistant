@@ -27,6 +27,7 @@ from app.crud import (
     create_log,
 )
 from app.services.notification.telegram_sender import telegram_sender
+from app.services.bots.chart_analyzer import chart_analyzer
 
 
 # 한글 폰트 설정
@@ -314,6 +315,78 @@ class ChartBot:
         _create_ta_chart(df, ticker, name, 'daily', period_name, filepath)
         return f"charts/{filename}"
 
+    def is_safe_chart_path(self, path: str) -> bool:
+        """경로가 charts_dir 내부에 있는지 검증 (path traversal 방지)."""
+        if not path:
+            return False
+        try:
+            abs_path = os.path.abspath(path)
+            abs_dir = os.path.abspath(self.charts_dir)
+            return abs_path.startswith(abs_dir + os.sep)
+        except Exception:
+            return False
+
+    def generate_test_charts(
+        self, ticker: str, market: str, name: str
+    ) -> List[Tuple[str, str, str]]:
+        """
+        테스트/미리보기용 ta-charts 생성.
+        - 같은 ticker+market의 기존 테스트 파일 자동 삭제 (덮어쓰기)
+        - deterministic 파일명 사용 (test_ 접두사) → 무한 누적 방지
+        - 발송용과 달리 분석 재사용을 위해 파일을 디스크에 유지
+
+        Returns:
+            [(abs_path, relative_url_path, label), ...]
+            예: [("/.../test_aapl_US_daily.png", "charts/test_aapl_US_daily.png", "일봉 (1년)"), ...]
+        """
+        suffix = ticker.replace('-', '_').replace('.', '_').lower()
+        prefix = f"test_{suffix}_{market}_"
+
+        # 같은 ticker+market 이전 테스트 파일 정리
+        try:
+            for f in os.listdir(self.charts_dir):
+                if f.startswith(prefix):
+                    try:
+                        os.remove(os.path.join(self.charts_dir, f))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        # 데이터 조회
+        if market == "US":
+            df = self._get_us_ohlcv(ticker, period="5y")
+        elif market == "KR":
+            df = self._get_kr_ohlcv(ticker, days=1825)
+        else:
+            return []
+        if df is None or len(df) < 20:
+            return []
+
+        df = _calculate_indicators(df)
+        results: List[Tuple[str, str, str]] = []
+
+        # 일봉 (1년)
+        df_daily = df.tail(252) if len(df) >= 252 else df
+        fname_daily = f"{prefix}daily.png"
+        path_daily = os.path.join(self.charts_dir, fname_daily)
+        _create_ta_chart(df_daily, ticker, name, 'daily', '1 year', path_daily)
+        results.append((path_daily, f"charts/{fname_daily}", "일봉 (1년)"))
+
+        # 주봉 (5년)
+        df_weekly = df[['Open', 'High', 'Low', 'Close', 'Volume']].resample('W').agg({
+            'Open': 'first', 'High': 'max', 'Low': 'min',
+            'Close': 'last', 'Volume': 'sum'
+        }).dropna()
+        if len(df_weekly) >= 20:
+            df_weekly = _calculate_indicators(df_weekly)
+            fname_weekly = f"{prefix}weekly.png"
+            path_weekly = os.path.join(self.charts_dir, fname_weekly)
+            _create_ta_chart(df_weekly, ticker, name, 'weekly', '5 years', path_weekly)
+            results.append((path_weekly, f"charts/{fname_weekly}", "주봉 (5년)"))
+
+        return results
+
     def generate_ta_charts(
         self, ticker: str, market: str, name: str
     ) -> List[Tuple[str, str]]:
@@ -435,8 +508,9 @@ class ChartBot:
         self, ticker: str, market: str, name: str
     ) -> int:
         """
-        ta-charts 형식: 일봉 + 주봉 차트를 텔레그램으로 발송
-        Returns: 성공 발송 건수
+        ta-charts 형식: 일봉 + 주봉 차트를 텔레그램으로 발송.
+        AI 기술분석이 활성화된 경우 차트 발송 후 분석 텍스트를 별도 메시지로 발송.
+        Returns: 차트 성공 발송 건수 (AI 분석 성공 여부와 무관)
         """
         db = SessionLocal()
         try:
@@ -451,6 +525,11 @@ class ChartBot:
                 create_log(db, "chartbot", "FAIL", f"차트 생성 실패: {ticker}")
                 return 0
 
+            # 일봉·주봉 경로 추출 (AI 분석에 재사용, 발송 후 삭제 전)
+            daily_path = charts[0][0] if len(charts) > 0 else None
+            weekly_path = charts[1][0] if len(charts) > 1 else None
+
+            # 1) 차트 사진 발송
             success = 0
             for photo_path, caption in charts:
                 sent = await telegram_sender.send_photo(
@@ -458,6 +537,30 @@ class ChartBot:
                 )
                 if sent:
                     success += 1
+
+            # 2) AI 기술분석 (차트 발송 성공 시에만 호출)
+            if success > 0:
+                try:
+                    analysis_html = await chart_analyzer.analyze(
+                        daily_path=daily_path,
+                        weekly_path=weekly_path,
+                        ticker=ticker,
+                        name=name,
+                        market=market,
+                    )
+                    if analysis_html:
+                        header = f"📈 <b>AI 기술분석</b> | {name} ({ticker})\n\n"
+                        parts = chart_analyzer.split_for_telegram(header + analysis_html)
+                        for part in parts:
+                            await telegram_sender.send_message(user=user, message=part)
+                        print(f"✅ Chartbot AI 분석 발송 완료: {ticker}")
+                except Exception as e:
+                    # AI 분석 실패는 차트 발송 성공에 영향 없음
+                    print(f"⚠️ Chartbot AI 분석 실패 ({ticker}): {e}")
+                    create_log(db, "chartbot", "WARN", f"AI 분석 실패: {ticker} - {e}")
+
+            # 3) PNG 파일 삭제 (분석 완료 후)
+            for photo_path, _ in charts:
                 try:
                     os.remove(photo_path)
                 except Exception:

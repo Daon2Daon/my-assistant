@@ -62,6 +62,9 @@ class AIGatewaySettingsResponse(BaseModel):
     primary_model: str
     fallback_model: str
     tagging_model: str
+    digest_model: str = Field(
+        description="주간 리뷰 합성 전용 모델 (chat completions 경로). 비어 있으면 fallback_model 사용."
+    )
     temperature: float
     max_tokens: int
     daily_budget_usd: float
@@ -73,6 +76,10 @@ class AIGatewaySettingsUpdate(BaseModel):
     primary_model: Optional[str] = None
     fallback_model: Optional[str] = None
     tagging_model: Optional[str] = None
+    digest_model: Optional[str] = Field(
+        None,
+        description="주간 리뷰 합성 전용 모델. 비어 있으면 fallback_model 사용. 게이트웨이 /v1/models에서 지원하는 이름으로 지정."
+    )
     temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(None, ge=256)
     daily_budget_usd: Optional[float] = Field(None, ge=0.0)
@@ -133,14 +140,14 @@ class RuntimeSettingsResponse(BaseModel):
 # ── 프롬프트 설정 ─────────────────────────────────────────────────────────────
 
 class PromptSettingsResponse(BaseModel):
-    primary_prompt: str = Field(description="경로 A (Gemini native) 기본 프롬프트")
-    fallback_prompt: str = Field(description="경로 B (OpenAI 호환) 폴백 프롬프트")
+    analysis_prompt: str = Field(description="영상 분석 프롬프트 (경로 A·B 공통)")
+    digest_prompt: str = Field(description="주간 리뷰 합성 프롬프트")
     prompt_version: str
 
 
 class PromptSettingsUpdate(BaseModel):
-    primary_prompt: Optional[str] = None
-    fallback_prompt: Optional[str] = None
+    analysis_prompt: Optional[str] = None
+    digest_prompt: Optional[str] = None
 
 
 # ── 런타임 설정 (polling + notification 통합) ─────────────────────────────────
@@ -207,3 +214,52 @@ class NotificationSettingsUpdate(BaseModel):
             if not _TIME_RE.match(t):
                 raise ValueError(f"시각 형식이 올바르지 않습니다 (HH:MM): {t!r}")
         return v
+
+
+# ── 주간 리뷰(Weekly Digest) ───────────────────────────────────────────────────
+
+_VALID_DOW = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+
+
+class DigestScheduleItem(BaseModel):
+    """다이제스트 예약 발송 1건 (요일 + 시각, KST 기준)."""
+    day_of_week: str = Field(description="mon|tue|wed|thu|fri|sat|sun")
+    time: str = Field(description="HH:MM (24h, KST)")
+
+    @field_validator("day_of_week")
+    @classmethod
+    def validate_dow(cls, v: str) -> str:
+        vv = (v or "").strip().lower()
+        if vv not in _VALID_DOW:
+            raise ValueError(f"요일이 올바르지 않습니다 (mon~sun): {v!r}")
+        return vv
+
+    @field_validator("time")
+    @classmethod
+    def validate_time(cls, v: str) -> str:
+        if not _TIME_RE.match((v or "").strip()):
+            raise ValueError(f"시각 형식이 올바르지 않습니다 (HH:MM): {v!r}")
+        return v.strip()
+
+
+class DigestSettingsResponse(BaseModel):
+    enabled: bool
+    period_weeks: int = Field(ge=1, le=8, description="리뷰 기간(주)")
+    schedule_times: List[DigestScheduleItem] = Field(
+        default_factory=list, description="예약 발송 일정 (요일 + 시각, KST)"
+    )
+    telegram_enabled: bool
+    # 대상 필터 (타입 간 AND, 타입 내 OR). None/빈값 = 제한 없음(전체).
+    categories: Optional[List[str]] = Field(None, description="대상 카테고리. None = 전체.")
+    channel_pks: Optional[List[int]] = Field(None, description="대상 채널 pk. None = 전체.")
+    tags: Optional[List[str]] = Field(None, description="대상 태그. None = 전체.")
+
+
+class DigestSettingsUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    period_weeks: Optional[int] = Field(None, ge=1, le=8)
+    schedule_times: Optional[List[DigestScheduleItem]] = Field(None, max_length=14)
+    telegram_enabled: Optional[bool] = None
+    categories: Optional[List[str]] = None
+    channel_pks: Optional[List[int]] = None
+    tags: Optional[List[str]] = None

@@ -7,6 +7,7 @@ const MAIN_NAV = [
   { to: '/youtube/channels', label: '채널 관리', icon: '📺' },
   { to: '/youtube/videos', label: '영상 목록', icon: '🎬' },
   { to: '/youtube/instant-analyze', label: '영상 분석', icon: '🔍' },
+  { to: '/youtube/digests', label: '주간 리뷰', icon: '📊' },
   { to: '/youtube/tags', label: '태그 클라우드', icon: '🏷' },
   { to: '/youtube/jobs', label: 'Logs', icon: '📋' },
 ]
@@ -16,6 +17,7 @@ const SETTINGS_NAV = [
   { to: '/youtube/settings/ai-gateway', label: 'AI Gateway', icon: '🤖' },
   { to: '/youtube/settings/runtime', label: '모니터링', icon: '⚙️' },
   { to: '/youtube/settings/notification', label: '알림 발송', icon: '🔔' },
+  { to: '/youtube/settings/digest', label: '주간 리뷰', icon: '📊' },
   { to: '/youtube/settings/prompts', label: '프롬프트', icon: '📝' },
 ]
 

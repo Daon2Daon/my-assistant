@@ -13,6 +13,7 @@ INSERT OR IGNORE INTO youtube_settings (category, key, value, value_enc, value_t
 ('ai_gateway', 'primary_model', 'gemini/gemini-2.5-flash', NULL, 'string', 0, '멀티모달 분석'),
 ('ai_gateway', 'fallback_model', 'gemini/gemini-2.5-flash', NULL, 'string', 0, '텍스트 fallback'),
 ('ai_gateway', 'tagging_model', 'gemini/gemini-2.5-flash', NULL, 'string', 0, '태그 정제'),
+('ai_gateway', 'digest_model', '', NULL, 'string', 0, '주간 리뷰 합성 전용 모델(chat completions). 비어 있으면 fallback_model 사용'),
 ('ai_gateway', 'temperature', '0.3', NULL, 'float', 0, '모델 공통 temperature'),
 ('ai_gateway', 'max_tokens', '8192', NULL, 'int', 0, 'max_tokens'),
 ('ai_gateway', 'daily_budget_usd', '2.0', NULL, 'float', 0, '일일 LLM 비용 한도(USD)'),
@@ -31,3 +32,13 @@ INSERT OR IGNORE INTO youtube_settings (category, key, value, value_enc, value_t
 ('notification', 'scheduled_max_per_run', '5', NULL, 'int', 0, '예약발송 한 회차당 최대 발송 건수'),
 ('notification', 'wait_between_messages_sec', '30', NULL, 'int', 0, '채널 간 발송 대기(초)'),
 ('notification', 'low_confidence_threshold', '0.5', NULL, 'float', 0, '저신뢰도 배지 임계값');
+
+-- 주간 리뷰(Weekly Digest) 기본 설정
+INSERT OR IGNORE INTO youtube_settings (category, key, value, value_enc, value_type, is_secret, description) VALUES
+('digest', 'enabled', 'false', NULL, 'bool', 0, '주간 리뷰 자동 생성 ON/OFF'),
+('digest', 'period_weeks', '1', NULL, 'int', 0, '리뷰 기간(주), 1~8'),
+('digest', 'schedule_times', '[]', NULL, 'json', 0, '예약 발송 일정 (JSON: [{"day_of_week":"sun","time":"20:00"}])'),
+('digest', 'telegram_enabled', 'true', NULL, 'bool', 0, '주간 리뷰 텔레그램 발송 ON/OFF'),
+('digest', 'categories', '[]', NULL, 'json', 0, '대상 카테고리 목록 (빈 배열 = 전체)'),
+('digest', 'channel_pks', '[]', NULL, 'json', 0, '대상 채널 pk 목록 (빈 배열 = 전체)'),
+('digest', 'tags', '[]', NULL, 'json', 0, '대상 태그 목록 (빈 배열 = 전체)');

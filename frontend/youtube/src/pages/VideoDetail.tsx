@@ -87,7 +87,7 @@ export default function VideoDetail() {
     if (!promptLoaded) {
       try {
         const res = await promptApi.get()
-        setCustomPrompt(res.primary_prompt)
+        setCustomPrompt(res.analysis_prompt)
         setPromptLoaded(true)
       } catch {
         // 실패해도 빈 텍스트로 열기
@@ -251,7 +251,7 @@ export default function VideoDetail() {
                       onClick={async () => {
                         try {
                           const res = await promptApi.get()
-                          setCustomPrompt(res.primary_prompt)
+                          setCustomPrompt(res.analysis_prompt)
                         } catch { /* no-op */ }
                       }}
                       className="text-xs text-amber-600 hover:text-amber-800 underline"

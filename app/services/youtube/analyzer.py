@@ -85,62 +85,6 @@ ANALYSIS_PROMPT_V1: str = """다음 유튜브 영상을 한국어로 분석해�
   "confidence_score": 0.0
 }}"""
 
-FALLBACK_PROMPT_V1: str = """다음 유튜브 영상을 한국어로 분석해줘.
-
-## 현재 날짜
-오늘은 {today}입니다. 업로드 일시가 {published_at_kst}인 이 영상은 현재 시점에서 이미 게시된 영상이므로 반드시 실제 내용을 기반으로 분석할 것. 학습 데이터 컷오프 이후에 업로드된 영상이더라도 URL을 통해 직접 접근하여 분석할 수 있음.
-
-## 영상 정보
-- 채널명: {channel_name}
-- 업로드 일시: {published_at_kst}
-- 영상 URL: {video_url}
-
-## 작성 원칙 (반드시 준수)
-영상이 '무엇을 했는가'(행위 서술)가 아닌, '무엇을 주장·예측·결론 내리는가'(내용 서술)를 중심으로 작성.
-아래 형태의 메타 서술 표현은 절대 사용 금지:
-  금지 표현: ~을 제시했다 / ~을 논했다 / ~을 설명했다 / ~을 다뤘다 / ~을 예측했다 /
-             ~을 모색했다 / ~을 제공했다 / ~을 분석했다 / ~을 강조했다 / ~을 언급했다
-
-[나쁜 예] "금리 인하 가능성을 논했다"
-[좋은 예] "2025년 하반기 금리 인하 가능성 높음 (근거: 물가 둔화세 + 고용 냉각)"
-
-[나쁜 예] "투자 전략을 제시했다"
-[좋은 예] "현 시점 채권 비중 확대 권고 — 금리 하락기 자본 차익 기대"
-
-[나쁜 예] "코스피 전망을 예측했다"
-[좋은 예] "하반기 코스피 2,700~3,000 목표 (근거: 기업 이익 회복, 외국인 수급 개선 기대)"
-
-## 분석 요청 항목
-- 한 줄 요약: 영상의 핵심 주장·결론을 한 문장으로 직접 서술. 행위 서술 금지.
-- 헤드라인: 이모지 1~2개와 핵심 키워드를 포함해 40자 이내로 작성.
-- 짧은 요약: 핵심 주장과 주요 근거를 중심으로 800자 이내 텔레그램용 요약문 작성. 행위 서술 금지.
-- 주요 내용 (Bullet points): 핵심 주장·예측·근거를 5~10개로 정리. 각 항목은 주장 또는 결론을 직접 서술하고 필요시 근거나 수치를 괄호로 추가. 각 항목 80자 이내.
-- 전체 분석: 마크다운 형식으로 '한 줄 요약 / 주요 주장과 근거 / 결론 및 인사이트' 섹션 포함. '주요 주장과 근거' 섹션에는 발표자의 주장과 그 뒷받침 논거를 구체적으로 서술.
-- 타임스탬프 포인트: 핵심 장면을 hh:mm:ss 형식의 타임스탬프와 함께 정리. 60분 초과 영상은 챕터별 분할.
-- 인사이트: 시청자가 실제로 활용 가능한 정보나 판단 근거를 3~5개로 정리.
-- 등장 인물/기업/지표: 영상에 등장하는 주요 인물, 기업, 티커, 수치를 추출.
-- 감성: 영상의 전체 논조를 bullish/bearish/neutral/mixed 중 하나로 판단.
-- 태그: 영상 내용을 대표하는 태그를 5~10개 추출. 한국어로 정규화 (예: '미 연준' → '연준').
-- 신뢰도: 분석의 완성도를 0.0~1.0으로 자기 평가.
-
-## 출력 형식
-반드시 아래 JSON 형식으로만 출력. 모든 텍스트는 한국어, '~함', '~임' 형태의 개조식으로 작성.
-정치적·민감 주제는 사실 위주로 중립 표현.
-
-{{
-  "one_line": "string",
-  "headline": "string",
-  "short_summary_md": "string",
-  "bullet_points": ["string"],
-  "full_analysis_md": "string",
-  "key_points": [{{"timestamp":"hh:mm:ss","point":"string"}}],
-  "insights": ["string"],
-  "entities": [{{"type":"person|company|ticker|metric","name":"string"}}],
-  "sentiment": "bullish|bearish|neutral|mixed",
-  "tags": [{{"name":"string","type":"topic|ticker|person|sector","weight":0.0}}],
-  "confidence_score": 0.0
-}}"""
-
 REQUIRED_FIELDS = {
     "one_line",
     "headline",
@@ -256,10 +200,11 @@ class AnalysisPipeline:
             base_prompt_a = _render(custom_prompt)
             base_prompt_b = _render(custom_prompt)
         else:
-            template_a = prompt_cfg.primary_prompt or ANALYSIS_PROMPT_V1
-            template_b = prompt_cfg.fallback_prompt or FALLBACK_PROMPT_V1
-            base_prompt_a = _render(template_a)
-            base_prompt_b = _render(template_b)
+            # 경로 A·B 공통 단일 프롬프트. 미설정 시 코드 기본값(ANALYSIS_PROMPT_V1) 사용.
+            template = prompt_cfg.analysis_prompt or ANALYSIS_PROMPT_V1
+            rendered = _render(template)
+            base_prompt_a = rendered
+            base_prompt_b = rendered
 
         # --- 경로 A ---
         try:

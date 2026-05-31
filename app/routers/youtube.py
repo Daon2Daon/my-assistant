@@ -30,9 +30,14 @@ from app.schemas.youtube import (
     ChannelCreate,
     ChannelUpdate,
     ChannelResponse,
+    DigestDetailResponse,
+    DigestGenerateRequest,
+    DigestGenerateResponse,
+    DigestListItem,
     InstantAnalyzeRequest,
     InstantAnalyzeResponse,
     JobLogResponse,
+    PaginatedDigests,
     PaginatedJobLogs,
     PaginatedVideos,
     PollTriggerResponse,
@@ -52,6 +57,8 @@ from app.schemas.youtube_settings import (
     DatabaseSettingsResponse,
     DatabaseSettingsUpdate,
     DBHealthResponse,
+    DigestSettingsResponse,
+    DigestSettingsUpdate,
     GatewayTestAnalyzeResponse,
     ModelInfo,
     ModelsResponse,
@@ -65,6 +72,7 @@ from app.schemas.youtube_settings import (
 )
 from app.models.youtube_channel import YoutubeChannel
 from app.models.youtube_deleted_video import YoutubeDeletedVideo
+from app.models.youtube_digest import YoutubeDigest
 from app.models.youtube_job_log import YoutubeJobLog
 from app.models.youtube_tag import YoutubeTag
 from app.models.youtube_video import YoutubeVideo
@@ -1037,6 +1045,130 @@ async def get_stats(session: AsyncSession = Depends(get_pg_session)):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# 주간 리뷰 (Weekly Digest)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@router.get("/digests", response_model=PaginatedDigests)
+async def list_digests(
+    category: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    session: AsyncSession = Depends(get_pg_session),
+):
+    """다이제스트 목록 (최신순, 페이지네이션)."""
+    stmt = select(YoutubeDigest).order_by(
+        YoutubeDigest.period_end.desc(), YoutubeDigest.digest_pk.desc()
+    )
+    if category is not None:
+        stmt = stmt.where(YoutubeDigest.category == category)
+
+    total = (
+        await session.execute(select(func.count()).select_from(stmt.subquery()))
+    ).scalar_one()
+
+    stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+    rows = (await session.execute(stmt)).scalars().all()
+
+    items = [DigestListItem.model_validate(r) for r in rows]
+    return PaginatedDigests(total=total, page=page, page_size=page_size, items=items)
+
+
+@router.get("/digests/{digest_pk}", response_model=DigestDetailResponse)
+async def get_digest(
+    digest_pk: int,
+    session: AsyncSession = Depends(get_pg_session),
+):
+    """다이제스트 상세."""
+    row = await session.get(YoutubeDigest, digest_pk)
+    if not row:
+        raise HTTPException(status_code=404, detail="다이제스트를 찾을 수 없습니다.")
+    return DigestDetailResponse.model_validate(row)
+
+
+@router.delete("/digests/{digest_pk}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_digest(
+    digest_pk: int,
+    session: AsyncSession = Depends(get_pg_session),
+):
+    """다이제스트 삭제."""
+    row = await session.get(YoutubeDigest, digest_pk)
+    if not row:
+        raise HTTPException(status_code=404, detail="다이제스트를 찾을 수 없습니다.")
+    await session.delete(row)
+
+
+@router.post("/digests/generate", response_model=DigestGenerateResponse)
+async def generate_digest_manual(body: DigestGenerateRequest = DigestGenerateRequest()):
+    """다이제스트 수동 생성/미리보기.
+
+    - save=True: 기간 집계 후 카테고리별 리뷰를 생성하여 저장
+    - save=False: 저장하지 않고 미리보기만 반환
+    period_weeks·대상 필터(카테고리/채널/태그) 미입력 시 digest 설정값을 사용한다.
+    """
+    from app.services.youtube.db_engine import db_engine_manager, DBNotConfiguredError
+    from app.services.youtube import digest_service
+
+    # 요청값이 없으면 설정값으로 폴백
+    digest_cfg = None
+    try:
+        digest_cfg = get_youtube_settings_manager().get_digest()
+    except Exception:
+        digest_cfg = None
+
+    period_weeks = body.period_weeks
+    if period_weeks is None:
+        period_weeks = int(getattr(digest_cfg, "period_weeks", 1) or 1) if digest_cfg else 1
+
+    categories = body.categories if body.categories is not None else getattr(digest_cfg, "categories", None)
+    channel_pks = body.channel_pks if body.channel_pks is not None else getattr(digest_cfg, "channel_pks", None)
+    tags = body.tags if body.tags is not None else getattr(digest_cfg, "tags", None)
+
+    try:
+        engine = await db_engine_manager.get_engine()
+    except DBNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"PostgreSQL 미설정: {exc}",
+        ) from exc
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    try:
+        records = await digest_service.generate_digests(
+            session_factory,
+            period_weeks=int(period_weeks),
+            categories=categories,
+            channel_pks=channel_pks,
+            tags=tags,
+            save=body.save,
+        )
+    except Exception as exc:
+        logger.exception("다이제스트 수동 생성 실패")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"다이제스트 생성 실패: {exc}",
+        ) from exc
+
+    if not records:
+        return DigestGenerateResponse(
+            success=True,
+            message="대상 기간에 분석 완료된 영상이 없습니다.",
+            created_digest_pks=[],
+            items=[],
+        )
+
+    items = [DigestDetailResponse.model_validate(r) for r in records]
+    created_pks = [r["digest_pk"] for r in records if r.get("digest_pk") is not None]
+    action = "저장" if body.save else "미리보기"
+    return DigestGenerateResponse(
+        success=True,
+        message=f"{len(items)}개 카테고리 다이제스트 {action} 완료",
+        created_digest_pks=created_pks,
+        items=items,
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # 설정 — 데이터베이스
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -1145,6 +1277,7 @@ def get_ai_gateway_settings():
         primary_model=g.primary_model,
         fallback_model=g.fallback_model,
         tagging_model=g.tagging_model,
+        digest_model=g.digest_model,
         temperature=g.temperature,
         max_tokens=g.max_tokens,
         daily_budget_usd=g.daily_budget_usd,
@@ -1159,6 +1292,7 @@ def update_ai_gateway_settings(body: AIGatewaySettingsUpdate, db=Depends(_settin
         "primary_model": "primary_model",
         "fallback_model": "fallback_model",
         "tagging_model": "tagging_model",
+        "digest_model": "digest_model",
         "temperature": "temperature",
         "max_tokens": "max_tokens",
         "daily_budget_usd": "daily_budget_usd",
@@ -1360,26 +1494,31 @@ def update_runtime_settings(body: RuntimeSettingsUpdate, db=Depends(_settings_db
 
 @router.get("/settings/prompts", response_model=PromptSettingsResponse)
 def get_prompt_settings():
-    """현재 적용 중인 분석 프롬프트 조회. DB 미설정 시 코드 기본값 반환."""
-    from app.services.youtube.analyzer import ANALYSIS_PROMPT_V1, FALLBACK_PROMPT_V1, PROMPT_VERSION
+    """현재 적용 중인 프롬프트 조회. DB 미설정 시 코드 기본값 반환.
+
+    - analysis_prompt: 영상 분석 (경로 A·B 공통, 단일)
+    - digest_prompt: 주간 리뷰 합성
+    """
+    from app.services.youtube.analyzer import ANALYSIS_PROMPT_V1, PROMPT_VERSION
+    from app.services.youtube.digest_service import DEFAULT_DIGEST_PROMPT
 
     mgr = get_youtube_settings_manager()
     p = mgr.get_prompts()
     return PromptSettingsResponse(
-        primary_prompt=p.primary_prompt or ANALYSIS_PROMPT_V1,
-        fallback_prompt=p.fallback_prompt or FALLBACK_PROMPT_V1,
+        analysis_prompt=p.analysis_prompt or ANALYSIS_PROMPT_V1,
+        digest_prompt=p.digest_prompt or DEFAULT_DIGEST_PROMPT,
         prompt_version=PROMPT_VERSION,
     )
 
 
 @router.put("/settings/prompts", response_model=PromptSettingsResponse)
 def update_prompt_settings(body: PromptSettingsUpdate, db=Depends(_settings_db)):
-    """분석 프롬프트 수정. 빈 문자열이면 코드 기본값으로 초기화."""
+    """프롬프트 수정. 빈 문자열이면 코드 기본값으로 초기화."""
     data = body.model_dump(exclude_none=True)
-    if "primary_prompt" in data:
-        _upsert_setting(db, "prompts", "primary_prompt", data["primary_prompt"])
-    if "fallback_prompt" in data:
-        _upsert_setting(db, "prompts", "fallback_prompt", data["fallback_prompt"])
+    if "analysis_prompt" in data:
+        _upsert_setting(db, "prompts", "analysis_prompt", data["analysis_prompt"])
+    if "digest_prompt" in data:
+        _upsert_setting(db, "prompts", "digest_prompt", data["digest_prompt"])
     mgr = get_youtube_settings_manager()
     mgr.invalidate("prompts")
     return get_prompt_settings()
@@ -1469,3 +1608,76 @@ def update_notification_settings(body: NotificationSettingsUpdate, db=Depends(_s
         logger.exception("YouTube 예약발송 스케줄 잡 갱신 실패")
 
     return _notification_response()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 설정 — 주간 리뷰 (digest)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _digest_response() -> DigestSettingsResponse:
+    mgr = get_youtube_settings_manager()
+    d = mgr.get_digest()
+    return DigestSettingsResponse(
+        enabled=d.enabled,
+        period_weeks=d.period_weeks,
+        schedule_times=d.schedule_times,
+        telegram_enabled=d.telegram_enabled,
+        categories=d.categories,
+        channel_pks=d.channel_pks,
+        tags=d.tags,
+    )
+
+
+@router.get("/settings/digest", response_model=DigestSettingsResponse)
+def get_digest_settings():
+    """주간 리뷰(다이제스트) 설정 조회."""
+    return _digest_response()
+
+
+@router.put("/settings/digest", response_model=DigestSettingsResponse)
+def update_digest_settings(body: DigestSettingsUpdate, db=Depends(_settings_db)):
+    """주간 리뷰 설정 수정.
+
+    - period_weeks: 리뷰 기간(주), 1~8
+    - schedule_times: [{"day_of_week":"sun","time":"20:00"}, ...] (KST)
+    - categories/channel_pks/tags: 대상 필터 (미입력/빈 목록 = 전체)
+    저장 후 다이제스트 스케줄 잡을 재등록한다.
+    """
+    data = body.model_dump(exclude_none=True)
+
+    simple_fields = {
+        "enabled": "enabled",
+        "period_weeks": "period_weeks",
+        "telegram_enabled": "telegram_enabled",
+    }
+    for attr, key in simple_fields.items():
+        if attr in data:
+            _upsert_setting(db, "digest", key, str(data[attr]))
+
+    if "schedule_times" in data:
+        # DigestScheduleItem 리스트 → 순수 dict 리스트(JSON 저장)
+        _upsert_setting(
+            db, "digest", "schedule_times",
+            _json.dumps(data["schedule_times"], ensure_ascii=False),
+        )
+
+    # 대상 필터 (JSON 리스트 저장)
+    for filter_key in ("categories", "channel_pks", "tags"):
+        if filter_key in data:
+            _upsert_setting(
+                db, "digest", filter_key,
+                _json.dumps(data[filter_key], ensure_ascii=False),
+            )
+
+    mgr = get_youtube_settings_manager()
+    mgr.invalidate("digest")
+
+    # 다이제스트 스케줄 잡 재구성
+    try:
+        from app.services.scheduler import scheduler_service
+
+        scheduler_service.update_youtube_digest_jobs()
+    except Exception:
+        logger.exception("YouTube 다이제스트 스케줄 잡 갱신 실패")
+
+    return _digest_response()

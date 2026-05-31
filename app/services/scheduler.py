@@ -74,10 +74,11 @@ class SchedulerService:
         misfire_grace_time: Optional[int] = None,
         max_instances: Optional[int] = None,
         coalesce: Optional[bool] = None,
+        day_of_week: Optional[str] = None,
     ):
         """
         정기 작업(Cron) 등록
-        매일 지정된 시간에 실행
+        매일(또는 지정 요일) 지정된 시간에 실행
 
         Args:
             func: 실행할 함수
@@ -89,8 +90,12 @@ class SchedulerService:
             misfire_grace_time: 트리거 시각 이후 이 시간(초) 안이면 실행 허용 (None이면 APScheduler 기본)
             max_instances: 동시 실행 상한 (None이면 스케줄러 job_defaults)
             coalesce: 누락분 병합 여부 (None이면 스케줄러 job_defaults)
+            day_of_week: 실행 요일 (mon,tue,...,sun 또는 0-6). None이면 매일 실행(기존 동작).
         """
-        trigger = CronTrigger(hour=hour, minute=minute)
+        if day_of_week is not None:
+            trigger = CronTrigger(day_of_week=day_of_week, hour=hour, minute=minute)
+        else:
+            trigger = CronTrigger(hour=hour, minute=minute)
 
         job_kwargs: dict = {
             "func": func,
@@ -108,7 +113,8 @@ class SchedulerService:
 
         self.scheduler.add_job(**job_kwargs)
 
-        print(f"📅 Cron Job 등록: {job_id} - 매일 {hour:02d}:{minute:02d}")
+        when = f"매주 {day_of_week}" if day_of_week is not None else "매일"
+        print(f"📅 Cron Job 등록: {job_id} - {when} {hour:02d}:{minute:02d}")
 
     def add_interval_job(
         self,
@@ -593,6 +599,9 @@ class SchedulerService:
         # 예약발송 잡도 함께 초기화
         self.setup_youtube_notify_jobs()
 
+        # 주간 리뷰(다이제스트) 잡도 함께 초기화
+        self.setup_youtube_digest_jobs()
+
     def update_youtube_master_poll_job(self):
         """
         polling 주기 변경 시 YouTube 폴링/분석 interval 잡만 재등록.
@@ -725,6 +734,71 @@ class SchedulerService:
             self.setup_youtube_notify_jobs()
         except Exception as e:
             print(f"❌ YouTube 알림 Job 갱신 실패: {e}")
+
+    def setup_youtube_digest_jobs(self):
+        """
+        digest 설정에 따라 주간 리뷰 발송 잡(youtube_digest_{요일}_{HHMM})을 등록한다.
+
+        - enabled=False 이면 등록하지 않는다.
+        - schedule_times: [{"day_of_week": "sun", "time": "20:00"}, ...]
+        - 스케줄러 타임존이 Asia/Seoul 이므로 시각은 KST 기준이다.
+        """
+        import re
+        from app.services.youtube.digest_service import youtube_weekly_digest_sync
+
+        try:
+            from app.services.youtube.settings_manager import get_youtube_settings_manager
+            mgr = get_youtube_settings_manager()
+            dcfg = mgr.get_digest()
+        except Exception as e:
+            print(f"⚠️ YouTube 다이제스트 설정 로드 실패: {e}")
+            return
+
+        if not dcfg.enabled:
+            print("ℹ️  YouTube 다이제스트 비활성 — 잡 등록 안 함")
+            return
+
+        time_pat = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
+        valid_days = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+
+        for entry in dcfg.schedule_times:
+            dow = str(entry.get("day_of_week", "")).strip().lower()
+            tstr = str(entry.get("time", "")).strip()
+            m = time_pat.match(tstr)
+            if dow not in valid_days or not m:
+                print(f"⚠️ YouTube 다이제스트: 잘못된 일정 항목 {entry!r} — skip")
+                continue
+            hour, minute = int(m.group(1)), int(m.group(2))
+            job_id = f"youtube_digest_{dow}_{hour:02d}{minute:02d}"
+            try:
+                self.add_cron_job(
+                    func=youtube_weekly_digest_sync,
+                    job_id=job_id,
+                    hour=hour,
+                    minute=minute,
+                    day_of_week=dow,
+                    misfire_grace_time=3600,
+                    max_instances=1,
+                    coalesce=True,
+                )
+                print(f"✅ YouTube 다이제스트 Job 등록: {job_id} (매주 {dow} {hour:02d}:{minute:02d})")
+            except Exception as e:
+                print(f"❌ YouTube 다이제스트 Job 등록 실패 ({entry!r}): {e}")
+
+    def update_youtube_digest_jobs(self):
+        """
+        digest 설정 변경 시 기존 다이제스트 잡을 전부 제거하고 재등록.
+        """
+        try:
+            existing_ids = [
+                job.id for job in self.scheduler.get_jobs()
+                if job.id.startswith("youtube_digest_")
+            ]
+            for job_id in existing_ids:
+                self.remove_job(job_id)
+            self.setup_youtube_digest_jobs()
+        except Exception as e:
+            print(f"❌ YouTube 다이제스트 Job 갱신 실패: {e}")
 
 
 # 싱글톤 인스턴스

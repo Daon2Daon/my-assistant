@@ -29,7 +29,7 @@ export default function InstantAnalyze() {
     if (next && !promptLoaded) {
       try {
         const res = await promptApi.get()
-        setCustomPrompt(res.primary_prompt)
+        setCustomPrompt(res.analysis_prompt)
         setPromptLoaded(true)
       } catch { /* 기본 프롬프트 로드 실패 무시 */ }
     }
@@ -134,7 +134,7 @@ export default function InstantAnalyze() {
                   onClick={async () => {
                     try {
                       const res = await promptApi.get()
-                      setCustomPrompt(res.primary_prompt)
+                      setCustomPrompt(res.analysis_prompt)
                     } catch { /* no-op */ }
                   }}
                   className="text-xs text-amber-600 hover:text-amber-800 underline"

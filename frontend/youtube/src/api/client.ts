@@ -150,8 +150,8 @@ export interface VideoNotifyResponse {
 }
 
 export interface PromptSettings {
-  primary_prompt: string
-  fallback_prompt: string
+  analysis_prompt: string
+  digest_prompt: string
   prompt_version: string
 }
 
@@ -255,7 +255,7 @@ export const jobApi = {
 export const promptApi = {
   get: () => request<PromptSettings>('/settings/prompts'),
 
-  update: (body: Partial<Pick<PromptSettings, 'primary_prompt' | 'fallback_prompt'>>) =>
+  update: (body: Partial<Pick<PromptSettings, 'analysis_prompt' | 'digest_prompt'>>) =>
     request<PromptSettings>('/settings/prompts', {
       method: 'PUT',
       body: JSON.stringify(body),

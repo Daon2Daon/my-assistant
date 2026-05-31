@@ -219,3 +219,79 @@ class InstantAnalyzeResponse(BaseModel):
     analysis_status: str
     existing: bool = Field(description="True = 이미 DB에 있던 영상, False = 신규 등록 후 분석 시작")
     message: str
+
+
+# ── 주간 리뷰(Weekly Digest) ───────────────────────────────────────────────────
+
+class DigestListItem(BaseModel):
+    """다이제스트 목록용 경량 항목."""
+    model_config = ConfigDict(from_attributes=True)
+
+    digest_pk: int
+    period_type: str
+    period_weeks: int
+    period_start: datetime
+    period_end: datetime
+    category: Optional[str] = None
+    video_count: int
+    headline: Optional[str] = None
+    status: str
+    created_at: datetime
+
+
+class DigestDetailResponse(BaseModel):
+    """다이제스트 상세."""
+    model_config = ConfigDict(from_attributes=True)
+
+    digest_pk: Optional[int] = None  # 미리보기(save=False) 시 None
+    period_type: str
+    period_weeks: int
+    period_start: datetime
+    period_end: datetime
+    category: Optional[str] = None
+    video_count: int
+    headline: Optional[str] = None
+    summary_md: Optional[str] = None
+    telegram_summary: Optional[str] = None
+    sentiment_breakdown: Optional[dict] = None
+    top_tags: Optional[List[Any]] = None
+    top_channels: Optional[List[Any]] = None
+    model_name: Optional[str] = None
+    token_input: Optional[int] = None
+    token_output: Optional[int] = None
+    cost_usd: Optional[float] = None
+    status: str
+    error: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class PaginatedDigests(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: List[DigestListItem]
+
+
+class DigestGenerateRequest(BaseModel):
+    """다이제스트 수동 생성/미리보기 요청."""
+    period_weeks: Optional[int] = Field(
+        None, ge=1, le=8, description="리뷰 기간(주). 미입력 시 설정값 사용."
+    )
+    categories: Optional[List[str]] = Field(
+        None, description="대상 카테고리 목록. 미입력 시 설정값/전체."
+    )
+    channel_pks: Optional[List[int]] = Field(
+        None, description="대상 채널 pk 목록. 미입력 시 설정값/전체."
+    )
+    tags: Optional[List[str]] = Field(
+        None, description="대상 태그 목록. 미입력 시 설정값/전체."
+    )
+    save: bool = Field(True, description="False 이면 저장하지 않고 미리보기만 반환.")
+
+
+class DigestGenerateResponse(BaseModel):
+    """다이제스트 수동 생성 결과."""
+    success: bool
+    message: str
+    created_digest_pks: List[int] = Field(default_factory=list)
+    items: List[DigestDetailResponse] = Field(default_factory=list)

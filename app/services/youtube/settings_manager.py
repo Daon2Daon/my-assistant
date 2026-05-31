@@ -134,6 +134,11 @@ class AIGatewaySettings:
     primary_model: str = "gemini/gemini-2.5-flash"
     fallback_model: str = "gemini/gemini-2.5-flash"
     tagging_model: str = "gemini/gemini-2.5-flash"
+    # 주간 리뷰 합성 전용 모델 (/v1/chat/completions 경로).
+    # 비어 있으면 fallback_model → tagging_model 순으로 대체 시도.
+    # 기존 영상 분석(Path A)과 달리 OpenAI 호환 엔드포인트를 사용하므로,
+    # 게이트웨이에 등록된 chat completions 지원 모델명을 지정해야 한다.
+    digest_model: str = ""
     temperature: float = 0.3
     max_tokens: int = 8192
     daily_budget_usd: float = 2.0
@@ -153,6 +158,7 @@ class AIGatewaySettings:
             tagging_model=str(
                 _row_typed(by_key.get("tagging_model"), fernet) or "gemini/gemini-2.5-flash"
             ),
+            digest_model=str(_row_typed(by_key.get("digest_model"), fernet) or ""),
             temperature=float(_row_typed(by_key.get("temperature"), fernet) or 0.3),
             max_tokens=int(_row_typed(by_key.get("max_tokens"), fernet) or 8192),
             daily_budget_usd=float(_row_typed(by_key.get("daily_budget_usd"), fernet) or 2.0),
@@ -161,15 +167,21 @@ class AIGatewaySettings:
 
 @dataclass
 class PromptSettings:
-    primary_prompt: str = ""
-    fallback_prompt: str = ""
+    # 영상 분석 프롬프트 (경로 A·B 공통, 단일). 비어 있으면 analyzer 코드 기본값 사용.
+    analysis_prompt: str = ""
+    # 주간 리뷰 합성 프롬프트. 비어 있으면 digest_service.DEFAULT_DIGEST_PROMPT 사용.
+    digest_prompt: str = ""
 
     @classmethod
     def from_rows(cls, rows: list[YoutubeSetting], fernet: Fernet | None) -> "PromptSettings":
         by_key = {r.key: r for r in rows}
+        # 하위호환: analysis_prompt 없으면 기존 primary_prompt 를 승계.
+        analysis = str(_row_typed(by_key.get("analysis_prompt"), fernet) or "")
+        if not analysis:
+            analysis = str(_row_typed(by_key.get("primary_prompt"), fernet) or "")
         return cls(
-            primary_prompt=str(_row_typed(by_key.get("primary_prompt"), fernet) or ""),
-            fallback_prompt=str(_row_typed(by_key.get("fallback_prompt"), fernet) or ""),
+            analysis_prompt=analysis,
+            digest_prompt=str(_row_typed(by_key.get("digest_prompt"), fernet) or ""),
         )
 
 
@@ -329,6 +341,102 @@ class NotificationSettings:
         )
 
 
+@dataclass
+class DigestSettings:
+    """주간 리뷰(Weekly Digest) 설정."""
+
+    enabled: bool = False
+    # 리뷰 기간(주). 1~8로 보정.
+    period_weeks: int = 1
+    # 예약 발송 일정: [{"day_of_week": "sun", "time": "20:00"}, ...]
+    schedule_times: List[dict] = field(default_factory=list)
+    telegram_enabled: bool = True
+    # 대상 필터 (타입 간 AND, 타입 내 OR). 각각 None/빈 리스트 = 제한 없음(전체).
+    categories: Optional[List[str]] = None
+    channel_pks: Optional[List[int]] = None
+    tags: Optional[List[str]] = None
+
+    @classmethod
+    def from_rows(cls, rows: list[YoutubeSetting], fernet: Fernet | None) -> "DigestSettings":
+        by_key = {r.key: r for r in rows}
+
+        enabled_row = by_key.get("enabled")
+        enabled = (
+            str(_row_typed(enabled_row, fernet)).lower() in ("1", "true", "yes", "on")
+            if enabled_row is not None
+            else False
+        )
+
+        raw_weeks = _row_typed(by_key.get("period_weeks"), fernet)
+        period_weeks = int(raw_weeks) if raw_weeks not in (None, "") else 1
+        if period_weeks < 1:
+            period_weeks = 1
+        elif period_weeks > 8:
+            period_weeks = 8
+
+        raw_times = _row_typed(by_key.get("schedule_times"), fernet)
+        if isinstance(raw_times, list):
+            schedule_times = [t for t in raw_times if isinstance(t, dict)]
+        elif isinstance(raw_times, str):
+            try:
+                parsed = _json.loads(raw_times)
+                schedule_times = [t for t in parsed if isinstance(t, dict)] if isinstance(parsed, list) else []
+            except Exception:
+                schedule_times = []
+        else:
+            schedule_times = []
+
+        te_row = by_key.get("telegram_enabled")
+        telegram_enabled = (
+            bool(_row_typed(te_row, fernet)) if te_row is not None else True
+        )
+
+        def _as_list(raw: Any) -> Optional[list]:
+            """JSON 리스트(또는 리스트 문자열)를 list로. 비거나 파싱 실패 시 None."""
+            val = raw
+            if isinstance(val, str):
+                if not val.strip():
+                    return None
+                try:
+                    val = _json.loads(val)
+                except Exception:
+                    return None
+            return val if isinstance(val, list) else None
+
+        cats_list = _as_list(_row_typed(by_key.get("categories"), fernet))
+        categories: Optional[List[str]] = None
+        if cats_list is not None:
+            cleaned = [str(c) for c in cats_list if str(c).strip()]
+            categories = cleaned or None
+
+        chan_list = _as_list(_row_typed(by_key.get("channel_pks"), fernet))
+        channel_pks: Optional[List[int]] = None
+        if chan_list is not None:
+            ints: List[int] = []
+            for c in chan_list:
+                try:
+                    ints.append(int(c))
+                except (TypeError, ValueError):
+                    continue
+            channel_pks = ints or None
+
+        tags_list = _as_list(_row_typed(by_key.get("tags"), fernet))
+        tags: Optional[List[str]] = None
+        if tags_list is not None:
+            cleaned_tags = [str(t) for t in tags_list if str(t).strip()]
+            tags = cleaned_tags or None
+
+        return cls(
+            enabled=enabled,
+            period_weeks=period_weeks,
+            schedule_times=schedule_times,
+            telegram_enabled=telegram_enabled,
+            categories=categories,
+            channel_pks=channel_pks,
+            tags=tags,
+        )
+
+
 class SettingsManager:
     """카테고리별 설정 조회 + TTL 캐시."""
 
@@ -409,6 +517,13 @@ class SettingsManager:
             return NotificationSettings.from_rows(rows, self._fernet)
 
         return self._get_cached("notification", load)
+
+    def get_digest(self) -> DigestSettings:
+        def load() -> DigestSettings:
+            rows = self._fetch_category("digest")
+            return DigestSettings.from_rows(rows, self._fernet)
+
+        return self._get_cached("digest", load)
 
 
 _manager_singleton: SettingsManager | None = None

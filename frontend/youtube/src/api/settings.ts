@@ -44,6 +44,8 @@ export interface AIGatewaySettingsResponse {
   primary_model: string
   fallback_model: string
   tagging_model: string
+  /** 주간 리뷰 합성 전용 모델 (chat completions). 빈 문자열이면 fallback_model 사용 */
+  digest_model: string
   temperature: number
   max_tokens: number
   daily_budget_usd: number
@@ -55,6 +57,7 @@ export interface AIGatewaySettingsUpdate {
   primary_model?: string
   fallback_model?: string
   tagging_model?: string
+  digest_model?: string
   temperature?: number
   max_tokens?: number
   daily_budget_usd?: number

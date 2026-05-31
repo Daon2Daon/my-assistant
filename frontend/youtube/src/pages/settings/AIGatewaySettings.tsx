@@ -87,6 +87,7 @@ export default function AIGatewaySettings() {
         primary_model: d.primary_model,
         fallback_model: d.fallback_model,
         tagging_model: d.tagging_model,
+        digest_model: d.digest_model,
         temperature: d.temperature,
         max_tokens: d.max_tokens,
         daily_budget_usd: d.daily_budget_usd,
@@ -226,6 +227,35 @@ export default function AIGatewaySettings() {
             onChange={(v) => setF('tagging_model', v)}
             models={models}
           />
+        </div>
+
+        {/* 주간 리뷰 합성 모델 */}
+        <h2 className="font-semibold text-gray-800 border-b pb-2 pt-2">주간 리뷰 합성 모델</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+          <div>
+            <ModelSelect
+              label="Digest 모델 (주간 리뷰 합성)"
+              value={form.digest_model ?? ''}
+              onChange={(v) => setF('digest_model', v)}
+              models={models}
+            />
+            <p className="text-xs text-gray-400 mt-1.5">
+              주간 리뷰 합성은 <code className="bg-gray-100 px-1 rounded">/v1/chat/completions</code>(OpenAI 호환) 경로를 사용합니다.
+              위 Primary 모델(Gemini 네이티브)과 다른 이름을 요구하는 게이트웨이라면 여기에 별도 지정하세요.
+              비어 있으면 Fallback 모델을 사용합니다.
+            </p>
+          </div>
+          {data?.digest_model && (
+            <div className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-blue-700 text-xs self-start">
+              현재 설정: <span className="font-mono font-medium">{data.digest_model}</span>
+            </div>
+          )}
+          {!data?.digest_model && (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-amber-700 text-xs self-start">
+              미설정 — Fallback 모델(<span className="font-mono">{data?.fallback_model}</span>)을 사용합니다.
+              게이트웨이가 해당 이름을 지원하지 않으면 아래에서 사용 가능한 모델을 확인하고 지정하세요.
+            </div>
+          )}
         </div>
 
         {/* 세부 파라미터 */}

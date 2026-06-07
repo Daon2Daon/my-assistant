@@ -295,7 +295,7 @@ class FinanceBot:
                 "low": float,
                 "high": float,
                 "current": float,
-                "position_percent": float  # 현재가가 52주 범위에서 차지하는 위치 (%)
+                "high_drop_percent": float  # 52주 고점 대비 현재가 하락률 (%)
             }
         """
         try:
@@ -310,16 +310,14 @@ class FinanceBot:
                 high_52week = hist["High"].max()
                 current_price = hist["Close"].iloc[-1]
 
-                # 현재가 위치 계산 (0~100%)
-                position_percent = 0
-                if high_52week > low_52week:
-                    position_percent = ((current_price - low_52week) / (high_52week - low_52week)) * 100
+                # 고점 대비 하락률 계산 (항상 0 이하)
+                high_drop_percent = ((current_price - high_52week) / high_52week) * 100
 
                 return {
                     "low": low_52week,
                     "high": high_52week,
                     "current": current_price,
-                    "position_percent": position_percent,
+                    "high_drop_percent": high_drop_percent,
                 }
 
             elif market == "KR":
@@ -337,16 +335,14 @@ class FinanceBot:
                 high_52week = df["고가"].max()
                 current_price = df["종가"].iloc[-1]
 
-                # 현재가 위치 계산
-                position_percent = 0
-                if high_52week > low_52week:
-                    position_percent = ((current_price - low_52week) / (high_52week - low_52week)) * 100
+                # 고점 대비 하락률 계산 (항상 0 이하)
+                high_drop_percent = ((current_price - high_52week) / high_52week) * 100
 
                 return {
                     "low": low_52week,
                     "high": high_52week,
                     "current": current_price,
-                    "position_percent": position_percent,
+                    "high_drop_percent": high_drop_percent,
                 }
 
         except Exception as e:
@@ -651,8 +647,8 @@ class FinanceBot:
                     if week_52:
                         low = week_52.get("low", 0)
                         high = week_52.get("high", 0)
-                        position = week_52.get("position_percent", 0)
-                        message += f"  52주: {low:,.2f} ~ {high:,.2f} (현재 {position:.1f}%)\n"
+                        drop = week_52.get("high_drop_percent", 0)
+                        message += f"  52주: {low:,.2f} ~ {high:,.2f} (고점 대비 {drop:.1f}%)\n"
 
             return message.strip()
 
@@ -723,8 +719,8 @@ class FinanceBot:
                     if week_52:
                         low = week_52.get("low", 0)
                         high = week_52.get("high", 0)
-                        position = week_52.get("position_percent", 0)
-                        message += f"  52주: {low:,.0f} ~ {high:,.0f} (현재 {position:.1f}%)\n"
+                        drop = week_52.get("high_drop_percent", 0)
+                        message += f"  52주: {low:,.0f} ~ {high:,.0f} (고점 대비 {drop:.1f}%)\n"
 
             return message.strip()
 

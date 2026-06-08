@@ -25,7 +25,7 @@ def _is_trading_day(market: str) -> bool:
     """오늘이 해당 시장의 거래일인지 확인한다 (주말·공휴일 모두 제외).
 
     미국(US): pandas_market_calendars의 NYSE 캘린더 사용.
-    한국(KR): pykrx의 당일 KOSPI 종목 목록 조회 결과로 판단.
+    한국(KR): pandas_market_calendars의 XKRX 캘린더 사용 (pykrx 데이터 지연 문제 회피).
     라이브러리 오류 시 True를 반환해 발송을 차단하지 않는다.
     """
     if market == "US":
@@ -39,18 +39,36 @@ def _is_trading_day(market: str) -> bool:
             print(f"⚠️  거래일 체크 실패 (US): {e} — 발송 허용으로 처리")
             return True
     else:
-        # KR: pandas_market_calendars는 KRX를 지원하지 않으므로 pykrx로 직접 확인
+        # KR: pandas_market_calendars의 XKRX 캘린더 사용
+        # pykrx는 장 마감 전·API 지연 시 당일 데이터가 비어 휴장으로 오판할 수 있음
         try:
+            import pandas_market_calendars as mcal
             kr_now = datetime.now(ZoneInfo("Asia/Seoul"))
-            # 주말은 API 호출 없이 즉시 반환
+            # 주말은 캘린더 조회 없이 즉시 반환
             if kr_now.weekday() >= 5:
                 return False
-            date_str = kr_now.strftime("%Y%m%d")
-            tickers = stock.get_market_ticker_list(date_str, market="KOSPI")
-            return len(tickers) > 0
+            today = kr_now.strftime("%Y-%m-%d")
+            cal = mcal.get_calendar("XKRX")
+            schedule = cal.schedule(start_date=today, end_date=today)
+            return not schedule.empty
         except Exception as e:
-            print(f"⚠️  거래일 체크 실패 (KR): {e} — 발송 허용으로 처리")
-            return True
+            print(f"⚠️  거래일 체크 실패 (KR, XKRX): {e} — pykrx fallback 시도")
+            # Fallback: pykrx로 전일 기준 거래일 확인
+            try:
+                kr_now = datetime.now(ZoneInfo("Asia/Seoul"))
+                if kr_now.weekday() >= 5:
+                    return False
+                # 전날(-1일)까지 포함한 범위로 조회해 데이터 지연 문제 회피
+                date_str = kr_now.strftime("%Y%m%d")
+                prev_date = (kr_now - timedelta(days=7)).strftime("%Y%m%d")
+                df = stock.get_market_ohlcv_by_date(prev_date, date_str, "005930")
+                if df is not None and not df.empty:
+                    last_date = df.index[-1].strftime("%Y%m%d")
+                    return last_date == date_str
+                return True
+            except Exception as e2:
+                print(f"⚠️  거래일 체크 실패 (KR, pykrx fallback): {e2} — 발송 허용으로 처리")
+                return True
 
 
 class FinanceBot:
@@ -728,15 +746,18 @@ class FinanceBot:
             print(f"❌ 메시지 포맷팅 실패: {e}")
             return "증시 정보를 가져올 수 없습니다."
 
-    async def send_us_market_notification(self):
+    async def send_us_market_notification(self, force: bool = False):
         """
         미국 증시 알림 발송
+
+        Args:
+            force: True이면 휴장일 체크를 건너뛰고 강제 발송 (테스트용)
         """
         db = SessionLocal()
 
         try:
             # 거래일 체크 (NYSE 기준, 미국 동부 시간)
-            if not _is_trading_day("US"):
+            if not force and not _is_trading_day("US"):
                 et_now = datetime.now(ZoneInfo("America/New_York"))
                 today_str = et_now.strftime("%Y-%m-%d (%a)")
                 print(f"⏸️  미국 증시 휴장일 — 발송 스킵 ({today_str} ET)")
@@ -834,15 +855,18 @@ class FinanceBot:
         finally:
             db.close()
 
-    async def send_kr_market_notification(self):
+    async def send_kr_market_notification(self, force: bool = False):
         """
         한국 증시 알림 발송
+
+        Args:
+            force: True이면 휴장일 체크를 건너뛰고 강제 발송 (테스트용)
         """
         db = SessionLocal()
 
         try:
             # 거래일 체크 (KRX 기준, 한국 시간)
-            if not _is_trading_day("KR"):
+            if not force and not _is_trading_day("KR"):
                 kr_now = datetime.now(ZoneInfo("Asia/Seoul"))
                 today_str = kr_now.strftime("%Y-%m-%d (%a)")
                 print(f"⏸️  한국 증시 휴장일 — 발송 스킵 ({today_str} KST)")

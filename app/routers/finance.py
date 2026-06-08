@@ -252,8 +252,8 @@ async def test_us_market_notification():
         발송 결과
     """
     try:
-        # 미국 증시 알림 즉시 발송
-        await finance_bot.send_us_market_notification()
+        # 미국 증시 알림 즉시 발송 (휴장일 체크 무시)
+        await finance_bot.send_us_market_notification(force=True)
 
         return JSONResponse(
             content={
@@ -278,8 +278,8 @@ async def test_kr_market_notification():
         발송 결과
     """
     try:
-        # 한국 증시 알림 즉시 발송
-        await finance_bot.send_kr_market_notification()
+        # 한국 증시 알림 즉시 발송 (휴장일 체크 무시)
+        await finance_bot.send_kr_market_notification(force=True)
 
         return JSONResponse(
             content={
